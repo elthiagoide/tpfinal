@@ -1,5 +1,11 @@
 import customtkinter as ctk
 from tkinter import messagebox
+from datetime import datetime
+try:
+    from tkcalendar import DateEntry
+    TKCAL_AVAILABLE = True
+except Exception:
+    TKCAL_AVAILABLE = False
 import sys
 import os
 import config
@@ -56,6 +62,26 @@ class VistaNuevaImpresion(ctk.CTkFrame):
         ctk.CTkLabel(row_nums, text=":", text_color="gray").pack(side="left")
         self.entry_minutos = ctk.CTkEntry(row_nums, placeholder_text="Min", width=50, fg_color="#1a1a1a", border_color="#444", text_color="white")
         self.entry_minutos.pack(side="left", padx=2)
+
+        # Cantidad de piezas
+        ctk.CTkLabel(row_nums, text="Cantidad:", text_color="gray").pack(side="left", padx=(12,2))
+        self.entry_cantidad = ctk.CTkEntry(row_nums, placeholder_text="1", width=80, fg_color="#1a1a1a", border_color="#444", text_color="white")
+        self.entry_cantidad.pack(side="left", padx=2)
+
+        # Fecha de entrega y precio (opcional)
+        row_extra = ctk.CTkFrame(self.frame_form, fg_color="transparent")
+        row_extra.pack(fill="x", padx=15, pady=(8,0))
+        ctk.CTkLabel(row_extra, text="Fecha entrega:", text_color="gray").pack(side="left", padx=(5,2))
+        if TKCAL_AVAILABLE:
+            self.entry_fecha_entrega = DateEntry(row_extra, date_pattern='yyyy-mm-dd')
+            self.entry_fecha_entrega.pack(side="left", padx=4)
+        else:
+            self.entry_fecha_entrega = ctk.CTkEntry(row_extra, placeholder_text=(datetime.now().strftime('%Y-%m-%d')))
+            self.entry_fecha_entrega.pack(side="left", padx=4)
+
+        ctk.CTkLabel(row_extra, text="Precio/u:", text_color="gray").pack(side="left", padx=(12,2))
+        self.entry_precio_unit = ctk.CTkEntry(row_extra, placeholder_text="0.0", width=120, fg_color="#1a1a1a", border_color="#444", text_color="white")
+        self.entry_precio_unit.pack(side="left", padx=4)
 
         # Botón
         self.btn_registrar = ctk.CTkButton(self.frame_form, text="REGISTRAR PIEZA", fg_color=config.COLOR_VERDE_BAMBU, hover_color=config.COLOR_VERDE_HOVER, font=("Segoe UI", 13, "bold"), command=self.registrar)
@@ -130,20 +156,32 @@ class VistaNuevaImpresion(ctk.CTkFrame):
 
         if not hs_str: hs_str = "0"
         if not min_str: min_str = "0"
+        cantidad_str = self.entry_cantidad.get() or "1"
+        fecha_entrega = None
+        if TKCAL_AVAILABLE:
+            try:
+                fecha_entrega = self.entry_fecha_entrega.get_date().strftime('%Y-%m-%d')
+            except Exception:
+                fecha_entrega = self.entry_fecha_entrega.get()
+        else:
+            fecha_entrega = self.entry_fecha_entrega.get().strip() or None
+        precio_unit_str = self.entry_precio_unit.get() or "0"
 
         try:
             peso = float(peso_str)
-            tiempo = float(hs_str) + (float(min_str) / 60)
+            tiempo_unit = float(hs_str) + (float(min_str) / 60)
+            cantidad = int(float(cantidad_str))
+            # tiempo total para stock/impresora: acumulamos tiempo total de la corrida
+            tiempo_total = tiempo_unit * max(1, cantidad)
+            precio_unit = float(precio_unit_str)
             
-            exito, mensaje = database.registrar_impresion(nombre, peso, tiempo, id_imp, id_bob, self.user_id)
+            exito, mensaje = database.registrar_impresion(nombre, peso, tiempo_unit, id_imp, id_bob, self.user_id, cantidad=cantidad, delivery_date=fecha_entrega, precio_unit=precio_unit)
 
             if exito:
-                # 1. Agregamos a la lista TEMPORAL
-                # Guardamos un diccionario simple para mostrarlo
-                costo_str = mensaje.split("$")[1] # Truco sucio para sacar el costo del mensaje, o calcúlalo
+                # 1. Agregamos a la lista TEMPORAL (mostrar detalle enriquecido)
                 nueva_pieza = {
                     "nombre": nombre,
-                    "detalle": f"Peso: {peso}g | Tiempo: {hs_str}:{min_str}hs | {mensaje}"
+                    "detalle": f"Cant: {cantidad} | Peso/u: {peso}g | Tiempo total: {tiempo_total:.2f} hs | {mensaje} | Entrega: {fecha_entrega or '-'} | Precio/u: {precio_unit:.2f}"
                 }
                 self.sesion_actual.insert(0, nueva_pieza) # Agregamos al principio
                 
@@ -157,7 +195,13 @@ class VistaNuevaImpresion(ctk.CTkFrame):
                 self.entry_minutos.delete(0, 'end')
                 self.cargar_datos_combos() # Actualizar stock combos
                 
-                messagebox.showinfo("Guardado", "Pieza añadida a la sesión.")
+                # Mostrar diálogo estilizado en lugar del messagebox estándar
+                dlg = ctk.CTkToplevel(self)
+                dlg.title("Guardado")
+                dlg.geometry("380x140")
+                ctk.CTkLabel(dlg, text="Pieza añadida a la sesión.", font=("Segoe UI", 12)).pack(pady=(20,8))
+                ctk.CTkLabel(dlg, text=f"{nombre} — {cantidad} unidad(es)", text_color="gray").pack()
+                ctk.CTkButton(dlg, text="Aceptar", command=dlg.destroy, fg_color=config.COLOR_VERDE_BAMBU).pack(pady=12)
             else:
                 messagebox.showerror("Error", mensaje)
 

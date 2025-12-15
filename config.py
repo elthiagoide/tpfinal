@@ -28,3 +28,15 @@ MODO_PRINCIPIANTE = True          # Arranca activado por defecto
 COLOR_FONDO_AYUDA = "#2a3036"
 COLOR_BORDE_AYUDA = "#00965e"
 COLOR_TITULO_AYUDA = "#00965e"
+# --- CONFIGURACIÓN ENERGÉTICA ---
+# Costo por kW-h (valor por defecto, el usuario podrá cambiarlo en la UI)
+COSTO_KW = 0.20
+# Mostrar cálculo de consumo energético en el dashboard por defecto
+MOSTRAR_CONSUMO = True
+
+# Tarifas por zona (ejemplos). El usuario puede seleccionar una zona o ingresar un costo manual.
+ZONAS_COSTO = {
+	'Zona urbana (tarifa baja)': 0.15,
+	'Zona estándar': 0.20,
+	'Zona industrial (tarifa alta)': 0.28
+}

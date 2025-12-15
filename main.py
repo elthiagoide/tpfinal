@@ -12,6 +12,8 @@ from vistas.bobinas import VistaBobinas
 from vistas.historial import VistaHistorial
 from vistas.nueva_impresion import VistaNuevaImpresion
 from vistas.inicio import VistaInicio
+from vistas.agenda import VistaAgenda
+from vistas.planificador import VistaPlanificador
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -137,64 +139,95 @@ class App(ctk.CTk):
     def mostrar_menu_principal(self):
         for widget in self.winfo_children(): widget.destroy()
 
-        self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0, fg_color=config.COLOR_MENU_LATERAL)
+        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0, fg_color=config.COLOR_MENU_LATERAL)
         self.sidebar.pack(side="left", fill="y")
 
         # 1. Cabecera (Logo Casa + Nombre Empresa)
         frame_header = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        frame_header.pack(fill="x", pady=(20, 5), padx=10)
-        
-        # Botón Inicio (Cuadrado Verde tipo MakerWorld)
-        btn_home = ctk.CTkButton(frame_header, text="", image=self.icon_home, width=40, height=40, 
-                                 fg_color=config.COLOR_VERDE_BAMBU, hover_color=config.COLOR_VERDE_HOVER, 
-                                 corner_radius=4, command=self.ir_a_inicio)
-        btn_home.pack(side="left")
-        
-        empresa_text = (self.usuario_empresa[:15] + '..') if self.usuario_empresa and len(self.usuario_empresa) > 15 else (self.usuario_empresa or "MI TALLER")
-        ctk.CTkLabel(frame_header, text=f"  {empresa_text.upper()}", font=("Segoe UI", 14, "bold"), text_color="white").pack(side="left")
+        frame_header.pack(fill="x", pady=(12, 6), padx=10)
 
-        # 2. Perfil Usuario
+        # Botón Inicio (Cuadrado Verde tipo MakerWorld)
+        btn_home = ctk.CTkButton(frame_header, text="", image=self.icon_home, width=40, height=40,
+                     fg_color=config.COLOR_VERDE_BAMBU, hover_color=config.COLOR_VERDE_HOVER,
+                     corner_radius=4, command=self.ir_a_inicio)
+        btn_home.pack(side="left")
+        # Pequeña casilla junto a la casita que muestra/oculta el panel de control
+        frame_header_pc = ctk.CTkFrame(frame_header, fg_color="transparent")
+        frame_header_pc.pack(side='left', padx=(8,0))
+        ctk.CTkLabel(frame_header_pc, text="Panel de Control", font=("Segoe UI", 11), text_color="white").pack(side='left', padx=(6,0))
+        # 2. Perfil Usuario (dejamos espacio en header; perfil y logout se muestran en el pie)
         frame_perfil = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        frame_perfil.pack(fill="x", padx=10, pady=(5, 15))
-        # Icono circular simulado
-        ctk.CTkLabel(frame_perfil, text="👤", font=("Segoe UI", 16)).pack(side="left", padx=(5,0))
-        ctk.CTkLabel(frame_perfil, text=f" {self.usuario_nombre}", text_color="gray", font=("Segoe UI", 12)).pack(side="left")
+        frame_perfil.pack(fill="x", padx=10, pady=(5, 6))
+        ctk.CTkLabel(frame_perfil, text="", fg_color="transparent").pack()
 
         ctk.CTkFrame(self.sidebar, height=1, fg_color=config.COLOR_SEPARADOR).pack(fill="x", pady=(0, 20))
 
-        # 3. Botones del Menú
-        self.crear_titulo_seccion("BIBLIOTECA")
-        #self.crear_boton_menu("Panel Inicio", self.icon_home, self.ir_a_inicio)
+        # 3. Botones del Menú (orden personalizado)
+        self.crear_titulo_seccion("ACCIONES")
+        # Orden según petición: Nueva Impresión, Historial, Planificación, Agenda, Mis Impresoras, Filamentos
+        self.crear_boton_menu("Nueva Impresión", self.icon_add, self.ir_a_nueva_impresion, destacado=True)
+        self.crear_boton_menu("Historial", self.icon_printer, self.ir_a_historial)
+        self.crear_boton_menu("Planificador", None, self.ir_a_planificador)
+        self.crear_boton_menu("Agenda", None, self.ir_a_agenda)
+
+        # Mover items de biblioteca dentro de ACCIONES para simplificar
         self.crear_boton_menu("Mis Impresoras", self.icon_printer, self.ir_a_impresoras)
         self.crear_boton_menu("Filamentos", self.icon_filament, self.ir_a_bobinas)
-        self.crear_boton_menu("Historial", self.icon_printer, self.ir_a_historial) # <--- Apunta a historial
-
-        self.crear_titulo_seccion("ACCIONES")
-        self.crear_boton_menu("Nueva Impresión", self.icon_add, self.ir_a_nueva_impresion, destacado=True)
         self.crear_titulo_seccion("WEB")
         self.crear_boton_menu("Comprar Máquinas", None, lambda: webbrowser.open("https://listado.mercadolibre.com.ar/impresion-3d-impresoras"))
         self.crear_boton_menu("Comprar Insumos", None, lambda: webbrowser.open("https://listado.mercadolibre.com.ar/impresion-3d-insumos"))
 
-        # 4. Zona Inferior
+        # Panel de Control: tres opciones (aparecen entre 'Comprar Insumos' y el footer)
+        self.panel_control = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        self.panel_control.pack(fill='x', padx=12, pady=(12,6))
+
+        # Modo Guía (switch compacto, deseleccionado por defecto)
+        row_guia = ctk.CTkFrame(self.panel_control, fg_color="transparent")
+        row_guia.pack(fill='x', pady=4)
+        self.switch_modo = ctk.CTkSwitch(row_guia, text="", progress_color=config.COLOR_VERDE_BAMBU, fg_color="#444", button_color="white", command=self.evento_cambiar_modo)
+        self.switch_modo.deselect()
+        self.switch_modo.pack(side='left')
+        ctk.CTkLabel(row_guia, text="Modo Guía", text_color="white", font=("Segoe UI", 11)).pack(side='left', padx=8)
+
+        # Modo Claro
+        row_claro = ctk.CTkFrame(self.panel_control, fg_color="transparent")
+        row_claro.pack(fill='x', pady=4)
+        self.switch_modo_claro = ctk.CTkSwitch(row_claro, text="", progress_color=config.COLOR_VERDE_BAMBU, fg_color="#444", button_color="white", command=self.evento_modo_claro)
+        self.switch_modo_claro.deselect()
+        self.switch_modo_claro.pack(side='left')
+        ctk.CTkLabel(row_claro, text="Modo Claro", text_color="white", font=("Segoe UI", 11)).pack(side='left', padx=8)
+
+        # Negrita
+        row_negrita = ctk.CTkFrame(self.panel_control, fg_color="transparent")
+        row_negrita.pack(fill='x', pady=4)
+        self.switch_negrita = ctk.CTkSwitch(row_negrita, text="", progress_color=config.COLOR_VERDE_BAMBU, fg_color="#444", button_color="white", command=self.evento_negrita)
+        self.switch_negrita.deselect()
+        self.switch_negrita.pack(side='left')
+        ctk.CTkLabel(row_negrita, text="Negrita", text_color="white", font=("Segoe UI", 11)).pack(side='left', padx=8)
+
+        # 4. Zona Inferior: perfil + logout, separador y switches
         frame_bottom = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        frame_bottom.pack(side="bottom", fill="x", pady=20, padx=10)
+        frame_bottom.pack(side="bottom", fill="x", pady=12, padx=10)
 
-        self.switch_modo = ctk.CTkSwitch(frame_bottom, text="Modo Guía", font=("Segoe UI", 12), text_color="white",
-                                         progress_color=config.COLOR_VERDE_BAMBU, fg_color="#444", button_color="white",
-                                         command=self.evento_cambiar_modo)
-        if config.MODO_PRINCIPIANTE: self.switch_modo.select()
-        else: self.switch_modo.deselect()
-        self.switch_modo.pack(pady=(0, 15), padx=5)
+        # Perfil y Cerrar Sesión juntos al pie
+        bottom_profile = ctk.CTkFrame(frame_bottom, fg_color="transparent")
+        bottom_profile.pack(fill='x', pady=(4,8))
+        empresa_text = (self.usuario_empresa[:18] + '..') if self.usuario_empresa and len(self.usuario_empresa) > 18 else (self.usuario_empresa or "Mi Taller")
+        ctk.CTkLabel(bottom_profile, text=f"👤  {self.usuario_nombre} - {empresa_text}", text_color="white", font=("Segoe UI", 13, "bold")).pack(side='left')
+        ctk.CTkButton(bottom_profile, text="Cerrar Sesión", fg_color="transparent", text_color=config.COLOR_ROJO, hover_color="#3a2a2a", command=self.mostrar_login).pack(side='right')
 
-        ctk.CTkFrame(frame_bottom, height=1, fg_color=config.COLOR_SEPARADOR).pack(fill="x", pady=(0, 10))
-        
-        ctk.CTkButton(frame_bottom, text=" Cerrar Sesión", image=self.logo_menu, compound="left", anchor="w",
-                      fg_color="transparent", text_color=config.COLOR_ROJO, hover_color="#3a2a2a",
-                      command=self.mostrar_login).pack(fill="x")
+        # Separador
+        ctk.CTkFrame(frame_bottom, height=1, fg_color=config.COLOR_SEPARADOR).pack(fill="x", pady=(2, 8))
 
         # Área Principal
         self.main_area = ctk.CTkFrame(self, fg_color=config.COLOR_FONDO_APP)
         self.main_area.pack(side="right", fill="both", expand=True)
+
+        # Aplicar tema actual luego de construir la UI
+        try:
+            self._apply_current_theme()
+        except Exception:
+            pass
 
         self.ir_a_inicio()
         self.after(1000, self.mostrar_anuncio)
@@ -224,15 +257,225 @@ class App(ctk.CTk):
         elif isinstance(self.vista_actual, VistaBobinas): self.ir_a_bobinas()
         elif isinstance(self.vista_actual, VistaNuevaImpresion): self.ir_a_nueva_impresion() # <--- Cambio aquí
 
+    def evento_modo_claro(self):
+        try:
+            if self.switch_modo_claro.get():
+                ctk.set_appearance_mode("Light")
+                # colores claros aproximados
+                sidebar_bg = "#F0F2F4"
+                main_bg = "#FFFFFF"
+                text_color = "black"
+                self._show_mode_toast("Modo Claro activado")
+            else:
+                ctk.set_appearance_mode("Dark")
+                sidebar_bg = config.COLOR_MENU_LATERAL
+                main_bg = config.COLOR_FONDO_APP
+                text_color = "white"
+                self._show_mode_toast("Modo Oscuro activado")
+
+            # Actualizar colores de contenedores principales
+            try:
+                if hasattr(self, 'sidebar') and self.sidebar is not None:
+                    self.sidebar.configure(fg_color=sidebar_bg)
+                if hasattr(self, 'main_area') and self.main_area is not None:
+                    self.main_area.configure(fg_color=main_bg)
+            except Exception:
+                pass
+
+            # Aplicar tema de forma recursiva a contenedores y widgets comunes
+            def apply_recursively(container, sidebar_mode=False):
+                if not container: return
+                for w in container.winfo_children():
+                    try:
+                        # Ajustes por tipo
+                        if isinstance(w, ctk.CTkLabel):
+                            w.configure(text_color=text_color)
+                        elif isinstance(w, ctk.CTkButton):
+                            try: w.configure(text_color=text_color)
+                            except Exception: pass
+                        elif isinstance(w, ctk.CTkEntry):
+                            try: w.configure(fg_color=main_bg, text_color=text_color)
+                            except Exception: pass
+                        # No tocar CTkFrame internos para preservar estilos de tarjetas y recuadros
+                        elif isinstance(w, ctk.CTkFrame):
+                            pass
+                        elif isinstance(w, ctk.CTkSwitch):
+                            # Los switches tienen apariencia propia; ajustar label si hay uno al lado
+                            try: 
+                                # muchos switches están acompañados por un Label sibling
+                                pass
+                            except Exception: pass
+                    except Exception:
+                        pass
+                    # Recurse
+                    try:
+                        apply_recursively(w, sidebar_mode=sidebar_mode)
+                    except Exception:
+                        pass
+
+            try:
+                apply_recursively(self.sidebar, sidebar_mode=True)
+                apply_recursively(self.main_area, sidebar_mode=False)
+                try:
+                    if self.vista_actual:
+                        apply_recursively(self.vista_actual, sidebar_mode=False)
+                except Exception:
+                    pass
+                # also ensure the stored panel_control label/switches reflect the change
+                try:
+                    if hasattr(self, 'panel_control') and self.panel_control:
+                        apply_recursively(self.panel_control, sidebar_mode=True)
+                except Exception:
+                    pass
+                # and the small checkbox/label in header
+                try:
+                    if hasattr(self, 'checkbox_panel') and self.checkbox_panel:
+                        # label sibling
+                        parent = self.checkbox_panel.master
+                        for w in parent.winfo_children():
+                            try:
+                                if isinstance(w, ctk.CTkLabel):
+                                    w.configure(text_color=text_color)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _show_mode_toast(self, text):
+        # pequeña confirmación visual en la vista principal
+        try:
+            toast = ctk.CTkLabel(self.main_area, text=text, fg_color=config.COLOR_TARJETA, corner_radius=6, text_color="white")
+            toast.place(relx=0.5, rely=0.02, anchor='n')
+            self.after(1200, toast.destroy)
+        except Exception:
+            pass
+
+    def evento_negrita(self):
+        try:
+            enabled = bool(self.switch_negrita.get())
+            # Delegar a la vista actual si soporta el cambio
+            if self.vista_actual and hasattr(self.vista_actual, 'apply_negrita'):
+                try:
+                    self.vista_actual.apply_negrita(enabled)
+                except Exception:
+                    pass
+            # Aplicar de forma más global: sidebar y main_area
+            try:
+                def apply_font_to_widget(w):
+                    try:
+                        if hasattr(w, 'cget'):
+                            f = w.cget('font')
+                            if not f:
+                                return
+                            # normalizar a lista
+                            if isinstance(f, str):
+                                parts = f.split()
+                            else:
+                                parts = list(f)
+                            # si está habilitado, asegurarse de 'bold' en estilos
+                            if enabled:
+                                if 'bold' not in [str(x).lower() for x in parts]:
+                                    parts.append('bold')
+                            else:
+                                parts = [p for p in parts if str(p).lower() != 'bold']
+                            try:
+                                w.configure(font=tuple(parts))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+                for container in (self.sidebar, self.main_area):
+                    try:
+                        for w in container.winfo_children():
+                            apply_font_to_widget(w)
+                            # algunos contenedores tienen hijos adicionales
+                            try:
+                                for c in w.winfo_children():
+                                    apply_font_to_widget(c)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def cambiar_vista(self, clase_vista, **kwargs):
         if self.vista_actual is not None: self.vista_actual.destroy()
         
         # El callback ahora apunta a ir_a_nueva_impresion
         if clase_vista == VistaInicio:
-            self.vista_actual = clase_vista(self.main_area, user_id=self.usuario_id, callback_nueva_impresion=self.ir_a_nueva_impresion)
+            self.vista_actual = clase_vista(self.main_area, user_id=self.usuario_id, callback_nueva_impresion=self.ir_a_nueva_impresion, **kwargs)
         else:
-            self.vista_actual = clase_vista(self.main_area, user_id=self.usuario_id)
+            self.vista_actual = clase_vista(self.main_area, user_id=self.usuario_id, **kwargs)
         self.vista_actual.pack(fill="both", expand=True)
+        # Reaplicar tema actual por si la nueva vista necesita ajustes
+        try:
+            self._apply_current_theme()
+        except Exception:
+            pass
+
+    def _apply_current_theme(self):
+        # Aplica los colores actuales según ctk.get_appearance_mode()
+        try:
+            mode = ctk.get_appearance_mode()
+        except Exception:
+            mode = 'Dark'
+        if mode == 'Light':
+            sidebar_bg = "#F0F2F4"
+            main_bg = "#FFFFFF"
+            text_color = "black"
+        else:
+            sidebar_bg = config.COLOR_MENU_LATERAL
+            main_bg = config.COLOR_FONDO_APP
+            text_color = "white"
+
+        # ajustar contenedores principales
+        try:
+            if hasattr(self, 'sidebar') and self.sidebar:
+                self.sidebar.configure(fg_color=sidebar_bg)
+            if hasattr(self, 'main_area') and self.main_area:
+                self.main_area.configure(fg_color=main_bg)
+        except Exception:
+            pass
+
+        # aplicar recursivamente
+        def apply_recursively(container, sidebar_mode=False):
+            if not container: return
+            for w in container.winfo_children():
+                try:
+                    if isinstance(w, ctk.CTkLabel):
+                        w.configure(text_color=text_color)
+                    elif isinstance(w, ctk.CTkButton):
+                        try: w.configure(text_color=text_color)
+                        except Exception: pass
+                    elif isinstance(w, ctk.CTkEntry):
+                        try: w.configure(fg_color=main_bg, text_color=text_color)
+                        except Exception: pass
+                    elif isinstance(w, ctk.CTkFrame):
+                        # preservar fg_color de frames internos (tarjetas), no forzar
+                        pass
+                except Exception:
+                    pass
+                try:
+                    apply_recursively(w, sidebar_mode=sidebar_mode)
+                except Exception:
+                    pass
+
+        try:
+            apply_recursively(self.sidebar, sidebar_mode=True)
+            apply_recursively(self.main_area, sidebar_mode=False)
+            if hasattr(self, 'vista_actual') and self.vista_actual:
+                try: apply_recursively(self.vista_actual, sidebar_mode=False)
+                except Exception: pass
+        except Exception:
+            pass
 
     # Rutas
     def ir_a_inicio(self): self.cambiar_vista(VistaInicio)
@@ -242,6 +485,9 @@ class App(ctk.CTk):
     # NUEVAS RUTAS
     def ir_a_historial(self): self.cambiar_vista(VistaHistorial)
     def ir_a_nueva_impresion(self): self.cambiar_vista(VistaNuevaImpresion)
+    def ir_a_agenda(self, pid=None): self.cambiar_vista(VistaAgenda, selected_pid=pid)
+    def ir_a_planificador(self): self.cambiar_vista(VistaPlanificador)
+    def ir_a_planificador(self): self.cambiar_vista(VistaPlanificador)
 
 if __name__ == "__main__":
     app = App()

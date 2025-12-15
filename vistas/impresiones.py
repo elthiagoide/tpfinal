@@ -1,5 +1,12 @@
 import customtkinter as ctk
 from tkinter import messagebox
+import tkinter as tk
+from datetime import datetime
+try:
+    from tkcalendar import DateEntry
+    TKCAL_AVAILABLE = True
+except Exception:
+    TKCAL_AVAILABLE = False
 import sys
 import os
 import config
@@ -58,6 +65,10 @@ class VistaImpresiones(ctk.CTkFrame):
 
         self.entry_minutos = ctk.CTkEntry(row_nums, placeholder_text="Min", width=50)
         self.entry_minutos.pack(side="left", padx=2)
+
+        ctk.CTkLabel(row_nums, text="Cantidad:").pack(side="left", padx=(10,2))
+        self.entry_cantidad = ctk.CTkEntry(row_nums, placeholder_text="1", width=80)
+        self.entry_cantidad.pack(side="left", padx=2)
 
         # Botón Registrar
         self.btn_registrar = ctk.CTkButton(self.frame_form, text="✅ Registrar Impresión", 
@@ -149,26 +160,40 @@ class VistaImpresiones(ctk.CTkFrame):
         id_bobina = self.mapa_bobinas.get(seleccion_bob)
 
         try:
-            peso = float(peso_str)
+                peso = float(peso_str)
             
-            # --- CONVERSIÓN DE TIEMPO ---
-            horas = float(horas_str)
-            minutos = float(minutos_str)
-            
-            # Fórmula: Horas totales = Horas + (Minutos / 60)
-            tiempo_total_horas = horas + (minutos / 60)
-            
-            if tiempo_total_horas == 0:
-                messagebox.showwarning("Atención", "El tiempo no puede ser 0.")
-                return
+                # --- CONVERSIÓN DE TIEMPO ---
+                horas = float(horas_str)
+                minutos = float(minutos_str)
+                tiempo_unit = horas + (minutos / 60)
+                cantidad = int(self.entry_cantidad.get() or 1)
+                if tiempo_unit == 0:
+                    messagebox.showwarning("Atención", "El tiempo por unidad no puede ser 0.")
+                    return
 
-            # Llamar a la base de datos (enviamos el total ya calculado)
-            exito, mensaje = database.registrar_impresion(
-                nombre_pieza, peso, tiempo_total_horas, id_impresora, id_bobina, self.user_id
-            )
+                # Fecha entrega y precio
+                fecha_entrega = None
+                precio_unit = 0.0
+                if TKCAL_AVAILABLE:
+                    # no hay control en esta vista por simplicidad; se puede ampliar
+                    fecha_entrega = None
+                try:
+                    precio_unit = float(self.entry_peso.get()) if self.entry_peso.get() else 0.0
+                except Exception:
+                    precio_unit = 0.0
+
+                # Llamar a la base de datos (enviamos tiempo por unidad y cantidad)
+                exito, mensaje = database.registrar_impresion(
+                    nombre_pieza, peso, tiempo_unit, id_impresora, id_bobina, self.user_id, cantidad=cantidad, delivery_date=fecha_entrega, precio_unit=precio_unit
+                )
 
             if exito:
-                messagebox.showinfo("¡Éxito!", mensaje)
+                # Modal estilizado
+                dlg = ctk.CTkToplevel(self)
+                dlg.title("¡Éxito!")
+                dlg.geometry("380x140")
+                ctk.CTkLabel(dlg, text=mensaje, wraplength=340).pack(pady=(20,8))
+                ctk.CTkButton(dlg, text="Aceptar", command=dlg.destroy, fg_color="green").pack(pady=8)
                 self.entry_nombre.delete(0, 'end')
                 self.entry_peso.delete(0, 'end')
                 # Limpiamos los campos de tiempo
@@ -194,22 +219,58 @@ class VistaImpresiones(ctk.CTkFrame):
             return
 
         for trabajo in historial:
+            # trabajo: (id, pieza, fecha, costo, peso, cantidad, delivery_date, precio_unit, ganancia, impresora, bob_marca, bob_color)
             id_trabajo = trabajo[0]
             pieza = trabajo[1]
             fecha = trabajo[2]
             costo = trabajo[3]
-            
+            cantidad = trabajo[5]
+            delivery = trabajo[6]
+            ganancia = trabajo[8]
+
             card = ctk.CTkFrame(self.scroll_frame)
             card.pack(fill="x", pady=5)
 
-            info_main = f"📦 {pieza}  |  💲 Costo: ${costo:.2f}"
+            # Checkbox
+            chk = ctk.CTkCheckBox(card, text="", width=20)
+            chk_var = tk.IntVar(value=0)
+            chk.configure(variable=chk_var)
+            chk.pack(side="left", padx=12)
+            if not hasattr(self, 'seleccionados'):
+                self.seleccionados = {}
+            self.seleccionados[id_trabajo] = chk_var
+
+            info_main = f"📦 {pieza}  |  💲 Costo: ${costo:.2f} | Cant: {cantidad}"
             ctk.CTkLabel(card, text=info_main, font=("Roboto", 14, "bold"), anchor="w").pack(side="left", padx=10, pady=(5,0))
             
-            info_sub = f"📅 {fecha}  |  🖨️ {trabajo[5]}  |  🧵 {trabajo[6]} {trabajo[7]}"
+            info_sub = f"📅 {fecha}  |  Entrega: {delivery or '-'} | Ganancia: ${ganancia if ganancia is not None else 0:.2f}"
             ctk.CTkLabel(card, text=info_sub, font=("Roboto", 11), text_color="gray", anchor="w").pack(side="left", padx=10, pady=(0,5))
             
-            ctk.CTkButton(card, text="X", fg_color="red", width=40, 
-                          command=lambda i=id_trabajo: self.eliminar(i)).pack(side="right", padx=10, pady=10)
+            # Ganancia destacada
+            ctk.CTkLabel(card, text=f"${ganancia if ganancia is not None else 0:.2f}", text_color="#9ee59e", font=("Roboto", 12, "bold")).pack(side="right", padx=12)
+            btns = ctk.CTkFrame(card, fg_color="transparent")
+            btns.pack(side="right", padx=10)
+            ctk.CTkButton(btns, text="Ver detalle", width=120, command=lambda t=trabajo: self.mostrar_detalle(t)).pack(side="left", padx=6)
+            ctk.CTkButton(btns, text="Eliminar", fg_color="red", width=60, command=lambda i=id_trabajo: self.eliminar(i)).pack(side="left", padx=6)
+
+    def mostrar_detalle(self, trabajo):
+        top = ctk.CTkToplevel(self)
+        top.title(f"Detalle - {trabajo[1]}")
+        top.geometry("520x320")
+        ctk.CTkLabel(top, text=trabajo[1], font=("Segoe UI", 16, "bold"), text_color="white").pack(pady=(12,6))
+        info = (
+            f"Fecha: {trabajo[2]}\n"
+            f"Costo total: ${trabajo[3]:.2f}\n"
+            f"Peso por unidad: {trabajo[4]} g\n"
+            f"Cantidad: {trabajo[5]}\n"
+            f"Fecha entrega: {trabajo[6] or '-'}\n"
+            f"Precio/u: ${trabajo[7] if trabajo[7] is not None else 0:.2f}\n"
+            f"Ganancia: ${trabajo[8] if trabajo[8] is not None else 0:.2f}\n"
+            f"Impresora: {trabajo[9]}\n"
+            f"Bobina: {trabajo[10]} {trabajo[11]}\n"
+        )
+        ctk.CTkLabel(top, text=info, text_color="gray", justify="left").pack(padx=12, pady=8)
+        ctk.CTkButton(top, text="Cerrar", command=top.destroy, fg_color=config.COLOR_VERDE_BAMBU).pack(pady=12)
 
     def eliminar(self, id_trabajo):
         if messagebox.askyesno("Borrar", "¿Borrar del historial?"):

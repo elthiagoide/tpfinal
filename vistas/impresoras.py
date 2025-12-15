@@ -17,6 +17,34 @@ DATOS_IMPRESORAS = {
     "OTROS": ["OTROS"] 
 }
 
+# Estimaciones de consumo por modelo (kW promedio en uso). Ajusta según el modelo real.
+MODEL_POWER_KW = {
+    "Ender 3": 0.12,
+    "Ender 3 V2": 0.12,
+    "Ender 5": 0.18,
+    "K1": 0.25,
+    "CR-10": 0.18,
+    "X1 Carbon": 0.30,
+    "P1S": 0.28,
+    "P1P": 0.28,
+    "A1 Mini": 0.10,
+    "A1": 0.20,
+    "Kobra 2": 0.20,
+    "Vyper": 0.16,
+    "Photon Mono": 0.06,
+    "Mega X": 0.22,
+    "Kobra Neo": 0.18,
+    "MK3S+": 0.20,
+    "MK4": 0.25,
+    "Mini+": 0.12,
+    "XL": 0.30,
+    "SL1S": 0.10,
+    "Magna 2": 0.25,
+    "Magna SE": 0.22,
+    "Hidra": 0.20,
+    "Apolo": 0.28
+}
+
 class VistaImpresoras(ctk.CTkFrame):
     def __init__(self, master, user_id, **kwargs):
         # 1. Configuración Inicial
@@ -38,6 +66,8 @@ class VistaImpresoras(ctk.CTkFrame):
         # Subtítulo del formulario
         ctk.CTkLabel(self.frame_add, text="AGREGAR NUEVA", font=("Segoe UI", 12, "bold"), text_color=config.COLOR_VERDE_BAMBU).pack(anchor="w", padx=20, pady=(15, 5))
 
+        # Nota: controles de consumo energético se muestran en el Dashboard
+
         # Fila 1: Nombre y Horas
         row1 = ctk.CTkFrame(self.frame_add, fg_color="transparent")
         row1.pack(fill="x", padx=15, pady=5)
@@ -54,6 +84,10 @@ class VistaImpresoras(ctk.CTkFrame):
         self.entry_horas = ctk.CTkEntry(row1, placeholder_text="0", width=80, fg_color="#1a1a1a", border_color="#444", text_color="white")
         self.entry_horas.pack(side="left", padx=5)
         self.entry_horas.insert(0, "0") 
+
+        ctk.CTkLabel(row1, text="Consumo (kW):", text_color="#ccc").pack(side="left", padx=(15,5))
+        self.entry_power = ctk.CTkEntry(row1, placeholder_text="Auto", width=80, fg_color="#1a1a1a", border_color="#444", text_color="white")
+        self.entry_power.pack(side="left", padx=5)
 
         # Fila 2: Marca y Modelo
         row2 = ctk.CTkFrame(self.frame_add, fg_color="transparent")
@@ -105,6 +139,15 @@ class VistaImpresoras(ctk.CTkFrame):
 
     def evento_cambio_modelo(self, modelo_seleccionado):
         self.chequear_manuales()
+        # Si tenemos una estimación para el modelo, la ponemos en el campo de consumo
+        valor = MODEL_POWER_KW.get(modelo_seleccionado)
+        if valor:
+            self.entry_power.delete(0, 'end')
+            self.entry_power.insert(0, str(valor))
+        else:
+            # si es OTROS o no conocido, dejamos "" para que el usuario lo complete
+            if modelo_seleccionado == "OTROS":
+                self.entry_power.delete(0, 'end')
 
     def chequear_manuales(self):
         self.row_manual.pack_forget()
@@ -150,7 +193,20 @@ class VistaImpresoras(ctk.CTkFrame):
 
         try:
             horas = float(horas_str)
-            if database.agregar_impresora(nombre, marca_final, modelo_final, horas, self.user_id):
+            # power (kW)
+            power_val = 0.0
+            try:
+                power_val = float(self.entry_power.get())
+            except:
+                power_val = 0.0
+
+            # Si no se ingresa power y tenemos una estimación por modelo, usarla
+            if power_val == 0.0:
+                est = MODEL_POWER_KW.get(modelo_final)
+                if est:
+                    power_val = float(est)
+
+            if database.agregar_impresora(nombre, marca_final, modelo_final, horas, self.user_id, power_kw=power_val):
                 messagebox.showinfo("Éxito", "Impresora guardada")
                 self.cargar_lista()
                 
@@ -177,8 +233,21 @@ class VistaImpresoras(ctk.CTkFrame):
              ctk.CTkLabel(self.scroll_frame, text="No tienes impresoras registradas.", text_color="gray").pack(pady=20)
              return
 
+        # Calcular totales
+        total_kw = 0.0
+        total_cost = 0.0
+        mostrar = config.MOSTRAR_CONSUMO
+        try:
+            costo_kw = float(config.COSTO_KW)
+        except:
+            costo_kw = 0.0
+
         for imp in lista:
+            # ahora imp puede contener power_kw en posición 6
             id_imp, nombre, marca, modelo, estado, horas = imp[0], imp[1], imp[2], imp[3], imp[4], imp[5]
+            power_kw = 0.0
+            if len(imp) > 6:
+                power_kw = imp[6]
 
             # TARJETA OSCURA (Estilo Bambu)
             card = ctk.CTkFrame(self.scroll_frame, fg_color=config.COLOR_TARJETA, corner_radius=8, border_width=1, border_color="#333")
@@ -194,10 +263,22 @@ class VistaImpresoras(ctk.CTkFrame):
             ctk.CTkLabel(info_frame, text=nombre, font=("Segoe UI", 14, "bold"), text_color="white").pack(anchor="w")
             ctk.CTkLabel(info_frame, text=f"{marca} {modelo} | {horas} hs", font=("Segoe UI", 12), text_color="gray").pack(anchor="w")
 
+            # Mostrar consumo si está activo
+            if mostrar:
+                ctk.CTkLabel(info_frame, text=f"Consumo: {power_kw:.2f} kW", font=("Segoe UI", 11), text_color="#cfcfcf").pack(anchor="w")
+                total_kw += power_kw
+                total_cost += power_kw * costo_kw
+
             # Botón Eliminar
             ctk.CTkButton(card, text="✕", width=30, height=30, fg_color="transparent", text_color="gray", hover_color=config.COLOR_ROJO,
                           command=lambda id=id_imp: self.evento_eliminar(id)).pack(side="right", padx=15)
-
+        # Mostrar resumen total si corresponde
+        if mostrar:
+            resumen = ctk.CTkFrame(self.scroll_frame, fg_color=config.COLOR_TARJETA, corner_radius=8, border_width=1, border_color="#333")
+            resumen.pack(fill="x", pady=8, padx=5)
+            ctk.CTkLabel(resumen, text="📊 Resumen Energía", font=("Segoe UI", 13, "bold"), text_color="white").pack(anchor="w", padx=12, pady=(8,2))
+            ctk.CTkLabel(resumen, text=f"Consumo total (sumado por impresora): {total_kw:.2f} kW", text_color="gray").pack(anchor="w", padx=12)
+            ctk.CTkLabel(resumen, text=f"Costo estimado por hora (según costo por kW): {total_cost:.2f}", text_color="gray").pack(anchor="w", padx=12, pady=(0,8))
     def evento_eliminar(self, id_impresora):
         if messagebox.askyesno("Confirmar", "¿Borrar impresora?"):
             database.eliminar_impresora(id_impresora)
@@ -206,3 +287,9 @@ class VistaImpresoras(ctk.CTkFrame):
             cantidad = database.contar_impresoras(self.user_id)
             self.entry_nombre.delete(0, 'end')
             self.entry_nombre.insert(0, f"Impresora {cantidad + 1}")
+            # refrescar lista para totales
+            self.cargar_lista()
+
+    def toggle_mostrar(self):
+        # éste método ya no se usa (el switch se movió al Dashboard)
+        pass
