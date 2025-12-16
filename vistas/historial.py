@@ -140,19 +140,45 @@ class VistaHistorial(ctk.CTkFrame):
             pass
 
         for trabajo in historial:
-            # trabajo now: (id, pieza, fecha, costo, peso, cantidad, delivery_date, precio_unit, ganancia, impresora, bob_marca, bob_color)
-            id_trabajo = trabajo[0]
-            pieza = trabajo[1]
-            fecha = trabajo[2]
-            costo = trabajo[3]
-            peso = trabajo[4]
-            cantidad = trabajo[5]
-            delivery = trabajo[6]
-            precio_unit = trabajo[7]
-            ganancia = trabajo[8]
-            impresora = trabajo[9]
-            bob_marca = trabajo[10]
-            bob_color = trabajo[11]
+            # Trabajos pueden venir con esquemas distintos; extraer defensivamente
+            def g(i, default=None):
+                try:
+                    return trabajo[i]
+                except Exception:
+                    return default
+
+            id_trabajo = g(0, 0)
+            pieza = g(1, "(sin nombre)")
+            fecha = g(2, "")
+            costo = g(3, 0.0) or 0.0
+            peso = g(4, 0.0) or 0.0
+
+            # Soporte para varias versiones de esquema
+            if len(trabajo) >= 12:
+                cantidad = g(5, 1)
+                delivery = g(6, None)
+                precio_unit = g(7, None)
+                ganancia = g(8, 0.0) or 0.0
+                impresora = g(9, "-")
+                bob_marca = g(10, "-")
+                bob_color = g(11, "-")
+            elif len(trabajo) == 9:
+                # Formato seleccionado en database.obtener_historial
+                cantidad = 1
+                delivery = None
+                precio_unit = None
+                ganancia = g(5, 0.0) or 0.0
+                impresora = g(6, "-")
+                bob_marca = g(7, "-")
+                bob_color = g(8, "-")
+            else:
+                cantidad = g(5, 1) or 1
+                delivery = g(6, None)
+                precio_unit = g(7, None)
+                ganancia = g(8, 0.0) or 0.0
+                impresora = g(9, "-")
+                bob_marca = g(10, "-")
+                bob_color = g(11, "-")
 
             # Tarjeta Estilo Dark
             card = ctk.CTkFrame(self.scroll_frame, fg_color=config.COLOR_TARJETA, corner_radius=8)
@@ -178,7 +204,10 @@ class VistaHistorial(ctk.CTkFrame):
             
             ctk.CTkLabel(info_frame, text=pieza, font=("Segoe UI", 14, "bold"), text_color="white").pack(anchor="w")
             
-            detalle = f"{fecha} | 💲${costo:.2f} | Cant: {cantidad} | Entrega: {delivery or '-'}"
+            try:
+                detalle = f"{fecha} | 💲${float(costo):.2f} | Cant: {cantidad} | Entrega: {delivery or '-'}"
+            except Exception:
+                detalle = f"{fecha} | 💲${costo} | Cant: {cantidad} | Entrega: {delivery or '-'}"
             ctk.CTkLabel(info_frame, text=detalle, font=("Segoe UI", 12), text_color="gray").pack(anchor="w")
 
             # Ganancia destacada y botones Ver detalle/Eliminar
@@ -189,21 +218,66 @@ class VistaHistorial(ctk.CTkFrame):
             ctk.CTkButton(btns_right, text="Eliminar", width=110, fg_color=config.COLOR_ROJO, hover_color=config.COLOR_ROJO_HOVER, command=lambda i=id_trabajo: self.eliminar(i)).pack(side="left", padx=6)
 
     def mostrar_detalle(self, trabajo):
-        # trabajo: (id, pieza, fecha, costo, peso, cantidad, delivery_date, precio_unit, ganancia, impresora, bob_marca, bob_color)
+        # Mostrar detalle de forma defensiva según esquema
         top = ctk.CTkToplevel(self)
-        top.title(f"Detalle - {trabajo[1]}")
+        top.title(f"Detalle - {g(1, '(sin nombre)')}")
         top.geometry("520x360")
-        ctk.CTkLabel(top, text=trabajo[1], font=("Segoe UI", 16, "bold"), text_color="white").pack(pady=(12,6))
+        try:
+            top.lift()
+            top.grab_set()
+        except:
+            pass
+        ctk.CTkLabel(top, text=g(1, '(sin nombre)'), font=("Segoe UI", 16, "bold"), text_color="white").pack(pady=(12,6))
+        # Reusar los campos ya calculados si es posible
+        try:
+            pieza = trabajo[1]
+        except: pieza = g(1, '(sin nombre)')
+        try:
+            fecha = trabajo[2]
+        except: fecha = g(2, '')
+        try:
+            costo = float(trabajo[3])
+        except: costo = g(3, 0.0)
+        try:
+            peso = trabajo[4]
+        except: peso = g(4, 0.0)
+
+        # Extract other fields defensively
+        if len(trabajo) >= 12:
+            cantidad = g(5, 1)
+            delivery = g(6, None)
+            precio_unit = g(7, None)
+            ganancia = g(8, 0.0)
+            impresora = g(9, '-')
+            bob_marca = g(10, '-')
+            bob_color = g(11, '-')
+        elif len(trabajo) == 9:
+            cantidad = 1
+            delivery = None
+            precio_unit = None
+            ganancia = g(5, 0.0)
+            impresora = g(6, '-')
+            bob_marca = g(7, '-')
+            bob_color = g(8, '-')
+        else:
+            cantidad = g(5, 1)
+            delivery = g(6, None)
+            precio_unit = g(7, None)
+            ganancia = g(8, 0.0)
+            impresora = g(9, '-')
+            bob_marca = g(10, '-')
+            bob_color = g(11, '-')
+
         info = (
-            f"Fecha: {trabajo[2]}\n"
-            f"Costo total: ${trabajo[3]:.2f}\n"
-            f"Peso por unidad: {trabajo[4]} g\n"
-            f"Cantidad: {trabajo[5]}\n"
-            f"Fecha entrega: {trabajo[6] or '-'}\n"
-            f"Precio/u: ${trabajo[7] if trabajo[7] is not None else 0:.2f}\n"
-            f"Ganancia: ${trabajo[8] if trabajo[8] is not None else 0:.2f}\n"
-            f"Impresora: {trabajo[9]}\n"
-            f"Bobina: {trabajo[10]} {trabajo[11]}\n"
+            f"Fecha: {fecha}\n"
+            f"Costo total: ${float(costo) if isinstance(costo, (int,float)) else costo}\n"
+            f"Peso por unidad: {peso} g\n"
+            f"Cantidad: {cantidad}\n"
+            f"Fecha entrega: {delivery or '-'}\n"
+            f"Precio/u: ${precio_unit if precio_unit is not None else 0}\n"
+            f"Ganancia: ${ganancia if ganancia is not None else 0}\n"
+            f"Impresora: {impresora}\n"
+            f"Bobina: {bob_marca} {bob_color}\n"
         )
         ctk.CTkLabel(top, text=info, text_color="gray", justify="left").pack(padx=12, pady=8)
         ctk.CTkButton(top, text="Cerrar", command=top.destroy, fg_color=config.COLOR_VERDE_BAMBU).pack(pady=12)

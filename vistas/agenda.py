@@ -4,6 +4,11 @@ import sys
 import os
 import json
 from datetime import datetime
+try:
+    from tkcalendar import DateEntry
+    CALENDARIO_DISPONIBLE = True
+except ImportError:
+    CALENDARIO_DISPONIBLE = False
 import config
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -13,11 +18,12 @@ import database
 class VentanaDetalle(ctk.CTkToplevel):
     def __init__(self, parent, datos_proyecto):
         super().__init__(parent)
-        
-        # Configuración Ventana
-        self.overrideredirect(True)
-        self.attributes('-topmost', True)
-        
+
+        # Configuración Ventana: NO usar overrideredirect para evitar problemas de visualización
+        self.transient(parent)
+        try:
+            self.attributes('-topmost', True)
+        except: pass
         bg_color = config.COLOR_FONDO_APP
         if isinstance(bg_color, tuple): bg_color = bg_color[1]
         self.configure(fg_color=bg_color)
@@ -84,8 +90,55 @@ class VentanaDetalle(ctk.CTkToplevel):
         
         ctk.CTkLabel(scroll, text=f"• GANANCIA FINAL: ${ganancia:.2f}", font=config.FONT_SUBTITULO, text_color="#ffd966").pack(anchor="w", padx=20, pady=10)
 
+        # Delivery (editable)
+        try:
+            fecha_actual = datos_proyecto.get('delivery_date')
+        except:
+            fecha_actual = None
+        ctk.CTkLabel(scroll, text=f"• Fecha de Entrega: {fecha_actual if fecha_actual else '-'}", font=config.FONT_TEXTO, text_color="white").pack(anchor="w", padx=20, pady=(6,2))
+        ctk.CTkButton(scroll, text="Extender plazo", width=140, fg_color="#3a7bd5", hover_color="#285a9e", command=lambda: self._abrir_extender_plazo(parent, datos_proyecto)).pack(anchor="w", padx=20, pady=(4,12))
+
         # Botón Cerrar Abajo
         ctk.CTkButton(self.frame, text="Cerrar", fg_color=config.COLOR_ACENTO, font=config.FONT_BOTON, command=self.destroy).pack(pady=20)
+        try:
+            self.lift()
+            self.grab_set()
+        except: pass
+
+    def _abrir_extender_plazo(self, parent, datos_proyecto):
+        # Popup simple para seleccionar nueva fecha
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Extender plazo")
+        dlg.geometry("360x180")
+        dlg.transient(self)
+        dlg.grab_set()
+        ctk.CTkLabel(dlg, text="Selecciona nueva fecha de entrega:", font=config.FONT_TEXTO, text_color="white").pack(pady=(12,6))
+        if CALENDARIO_DISPONIBLE:
+            cal = DateEntry(dlg, width=16, background='#00965e', foreground='white', borderwidth=2, font=("Arial", 12))
+            cal.pack(pady=6)
+        else:
+            ent = ctk.CTkEntry(dlg, placeholder_text="AAAA-MM-DD")
+            ent.pack(pady=6)
+
+        def on_guardar():
+            if CALENDARIO_DISPONIBLE:
+                fecha_str = cal.get_date().strftime("%Y-%m-%d")
+            else:
+                fecha_str = ent.get() or datetime.now().strftime("%Y-%m-%d")
+            ok = database.actualizar_fecha_entrega(datos_proyecto.get('id'), fecha_str)
+            if ok:
+                messagebox.showinfo("Guardado", "Fecha de entrega actualizada.")
+                try:
+                    parent.cargar_lista()
+                except: pass
+                dlg.destroy()
+                try: self.destroy()
+                except: pass
+            else:
+                messagebox.showerror("Error", "No se pudo actualizar la fecha.")
+
+        ctk.CTkButton(dlg, text="Guardar", fg_color=config.COLOR_ACENTO, command=on_guardar).pack(pady=(8,4))
+        ctk.CTkButton(dlg, text="Cancelar", fg_color="transparent", command=dlg.destroy).pack()
 
 
 # --- VISTA PRINCIPAL ---
@@ -151,6 +204,28 @@ class VistaAgenda(ctk.CTkFrame):
             except IndexError:
                 continue # Saltar registros corruptos
 
+            # Si el proyecto ya no está pendiente, lo ignoramos en la lista
+            estado = None
+            try:
+                # algunos esquemas llevan 'estado' en el índice 12, otros en 11
+                candidatos = []
+                if len(p) > 12: candidatos.append(p[12])
+                if len(p) > 11: candidatos.append(p[11])
+                # Normalizar y decidir si ya está terminado
+                terminado = False
+                for c in candidatos:
+                    try:
+                        s = str(c).lower()
+                        if s.startswith('term') or s.startswith('realiz') or s.startswith('done'):
+                            terminado = True
+                            break
+                    except:
+                        pass
+                if terminado:
+                    continue
+            except:
+                pass
+
             # --- TARJETA ---
             card = ctk.CTkFrame(self.scroll, fg_color=config.COLOR_TARJETA, corner_radius=10, 
                                 border_width=2, border_color=config.COLOR_ACENTO)
@@ -198,12 +273,14 @@ class VistaAgenda(ctk.CTkFrame):
 
             # Datos para pasar al detalle
             datos_dict = {
-                "materiales": materiales_raw, 
-                "flota": flota_raw, 
+                "id": pid,
+                "materiales": materiales_raw,
+                "flota": flota_raw,
                 "ganancia": float(ganancia),
                 "energia": float(energia),
                 "precio_unit": float(precio_u),
-                "meta": int(meta)
+                "meta": int(meta),
+                "delivery_date": fecha_entrega
             }
 
             # Botón Ver Detalle (Azul)
@@ -227,14 +304,13 @@ class VistaAgenda(ctk.CTkFrame):
             self.cargar_lista()
 
     def realizar_trabajo(self, pid):
-        if messagebox.askyesno("Completar", "¿Marcar trabajo como realizado? (Se archivará)"):
+        if messagebox.askyesno("Completar", "¿Marcar trabajo como realizado? (Se archivará) "):
             try:
-                conn = database.get_connection()
-                # Actualizamos el estado a 'Terminado' (o 'Realizado')
-                conn.execute("UPDATE proyectos_agenda SET estado='Terminado' WHERE id=?", (pid,))
-                conn.commit()
-                conn.close()
-                messagebox.showinfo("Listo", "Trabajo marcado como terminado.")
+                ok = database.archivar_proyecto_como_impresion(pid)
+                if ok:
+                    messagebox.showinfo("Listo", "Trabajo archivado y marcado como terminado.")
+                else:
+                    messagebox.showerror("Error", "No se pudo archivar el proyecto.")
                 self.cargar_lista()
             except Exception as e:
                 messagebox.showerror("Error", str(e))

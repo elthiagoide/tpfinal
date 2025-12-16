@@ -105,6 +105,8 @@ def setup_database():
     except: pass
     try: cursor.execute("ALTER TABLE proyectos_agenda ADD COLUMN delivery_date TEXT")
     except: pass
+    try: cursor.execute("ALTER TABLE usuarios ADD COLUMN precio_kwh REAL DEFAULT NULL")
+    except: pass
     
     conn.commit()
     conn.close()
@@ -145,6 +147,17 @@ def obtener_todos_usuarios():
     datos = cursor.fetchall()
     conn.close()
     return datos
+
+def actualizar_avatar_usuario(user_id, avatar_path):
+    conn = get_connection()
+    try:
+        conn.execute('UPDATE usuarios SET avatar_path = ? WHERE id = ?', (avatar_path, user_id))
+        conn.commit()
+        return True
+    except:
+        return False
+    finally:
+        conn.close()
 
 # --- IMPRESORAS ---
 
@@ -271,6 +284,125 @@ def obtener_historial(user_id):
     d = cursor.fetchall()
     conn.close()
     return d
+
+def guardar_precio_kwh(user_id, precio):
+    conn = get_connection()
+    try:
+        conn.execute('UPDATE usuarios SET precio_kwh=? WHERE id=?', (precio, user_id))
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+def obtener_precio_kwh(user_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT precio_kwh FROM usuarios WHERE id=?', (user_id,))
+        r = cursor.fetchone()
+        if r and r[0] is not None:
+            return float(r[0])
+    except:
+        pass
+    finally:
+        conn.close()
+    return None
+
+def crear_impresion_agregada(nombre_pieza, costo_final, peso_usado, tiempo_usado, cantidad, delivery_date, precio_unit, ganancia, id_impresora, id_bobina, user_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO impresiones (nombre_pieza, costo_final, peso_usado, tiempo_usado, cantidad, delivery_date, precio_unit, ganancia, id_impresora, id_bobina, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       (nombre_pieza, costo_final, peso_usado, tiempo_usado, int(cantidad), delivery_date, float(precio_unit) if precio_unit is not None else None, float(ganancia) if ganancia is not None else 0, id_impresora, id_bobina, user_id))
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+def actualizar_fecha_entrega(proyecto_id, fecha_str):
+    conn = get_connection()
+    try:
+        conn.execute('UPDATE proyectos_agenda SET delivery_date=? WHERE id=?', (fecha_str, proyecto_id))
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+def archivar_proyecto_como_impresion(proyecto_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT * FROM proyectos_agenda WHERE id = ?', (proyecto_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+
+        # Defensive extraction: map by index with fallbacks in case schema differs
+        def g(i, default=None):
+            return row[i] if len(row) > i else default
+
+        _id = g(0)
+        user_id = g(1)
+        nombre = g(2) or "(sin nombre)"
+        meta = g(3) or 1
+        materiales_raw = g(4) or "{}"
+        flota_raw = g(5) or "[]"
+        tiempo_hs = g(6) or 0
+        costo_energia = g(7) or 0.0
+        precio_unit = g(8) or 0.0
+        delivery_date = g(9)
+        ganancia = g(10) or 0.0
+
+        # Peso total (sumar gramos si materiales es JSON)
+        peso_total = 0.0
+        try:
+            import json
+            mats = json.loads(materiales_raw) if isinstance(materiales_raw, str) else {}
+            for v in mats.values():
+                try:
+                    peso_total += float(v)
+                except:
+                    pass
+        except:
+            peso_total = 0.0
+
+        # Intentar obtener id_impresora desde flota JSON (primer elemento si tiene 'id')
+        id_impresora = None
+        try:
+            import json
+            flota = json.loads(flota_raw) if isinstance(flota_raw, str) else []
+            if isinstance(flota, list) and len(flota) > 0:
+                first = flota[0]
+                if isinstance(first, dict):
+                    id_impresora = first.get('id') or first.get('id_impresora')
+        except:
+            id_impresora = None
+
+        # Usar costo_energia como costo_final aproximado si no hay otro dato
+        costo_final = costo_energia if costo_energia is not None else 0.0
+
+        ok = crear_impresion_agregada(nombre_pieza=nombre, costo_final=costo_final, peso_usado=peso_total,
+                                       tiempo_usado=tiempo_hs or 0, cantidad=meta or 1, delivery_date=delivery_date,
+                                       precio_unit=precio_unit or 0, ganancia=ganancia or 0, id_impresora=id_impresora,
+                                       id_bobina=None, user_id=user_id)
+
+        if not ok:
+            return False
+
+        # Marcar proyecto como terminado
+        cursor.execute("UPDATE proyectos_agenda SET estado='Terminado' WHERE id=?", (proyecto_id,))
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
 
 def eliminar_impresion(id_impresion):
     conn = get_connection()

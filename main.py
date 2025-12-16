@@ -102,15 +102,23 @@ class App(ctk.CTk):
             card = ctk.CTkFrame(frame_perfiles, fg_color="transparent")
             card.pack(side="left", padx=25)
 
-            # Cargar imagen específica
-            img_user = self.obtener_avatar_usuario(avatar_path, size=(120, 120))
-            
-            btn = ctk.CTkButton(card, text="", width=140, height=140, 
-                                image=img_user, 
-                                fg_color=config.COLOR_TARJETA, hover_color=config.COLOR_ACENTO,
-                                corner_radius=20,
-                                command=lambda u=username: self.mostrar_login_password(u))
-            btn.pack()
+            # Cargar imagen específica (ajustada para rellenar el interior del recuadro 140x140 con border 2)
+            img_user = self.obtener_avatar_usuario(avatar_path, size=(136, 136))
+
+            # Marco cuadrado verde que no sobresalga (sin corner radius)
+            avatar_frame = ctk.CTkFrame(card, fg_color=config.COLOR_TARJETA, width=140, height=140, corner_radius=0, border_width=2, border_color=config.COLOR_ACENTO)
+            avatar_frame.pack_propagate(False)
+            avatar_frame.pack()
+
+            if img_user:
+                lbl = ctk.CTkLabel(avatar_frame, text="", image=img_user)
+                lbl.pack(expand=True)
+                lbl.bind("<Button-1>", lambda e, u=username: self.mostrar_login_password(u))
+            else:
+                lbl = ctk.CTkLabel(avatar_frame, text="👤", font=("Arial", 36), text_color="gray")
+                lbl.pack(expand=True)
+                lbl.bind("<Button-1>", lambda e, u=username: self.mostrar_login_password(u))
+
             ctk.CTkLabel(card, text=username, font=config.FONT_SUBTITULO, text_color=config.COLOR_TEXTO_GRIS).pack(pady=15)
 
         ctk.CTkButton(self, text="+ Agregar Cuenta", fg_color="transparent", text_color="gray", 
@@ -133,7 +141,15 @@ class App(ctk.CTk):
         path_actual = res[0] if res else None
         
         img = self.obtener_avatar_usuario(path_actual, size=(80, 80))
-        if img: ctk.CTkLabel(card, text="", image=img).pack(pady=(30, 10))
+        # Marco cuadrado verde alrededor del avatar en pantalla de contraseña
+        avatar_frame = ctk.CTkFrame(card, fg_color=config.COLOR_TARJETA, width=84, height=84, corner_radius=0, border_width=2, border_color=config.COLOR_ACENTO)
+        avatar_frame.pack_propagate(False)
+        avatar_frame.pack(pady=(20, 10))
+        if img:
+            lbl = ctk.CTkLabel(avatar_frame, text="", image=img)
+            lbl.pack(expand=True)
+        else:
+            ctk.CTkLabel(avatar_frame, text="👤", font=("Arial", 30), text_color="gray").pack(expand=True)
 
         ctk.CTkLabel(card, text=f"Hola, {prefill_user}", font=config.FONT_SUBTITULO, text_color=config.COLOR_TEXTO_BLANCO).pack(pady=(0, 20), padx=60)
         
@@ -220,6 +236,32 @@ class App(ctk.CTk):
         else: 
             messagebox.showerror("Error", "El usuario ya existe")
 
+    def cambiar_avatar_usuario(self):
+        """Permite al usuario cambiar el avatar desde el sidebar."""
+        if not self.usuario_id:
+            messagebox.showwarning("Atención", "No hay usuario logueado")
+            return
+        filename = filedialog.askopenfilename(title="Seleccionar Avatar", filetypes=[("Imágenes", "*.png;*.jpg;*.jpeg")])
+        if not filename: return
+
+        try:
+            ext = os.path.splitext(filename)[1]
+            nombre_archivo = f"avatar_user_{self.usuario_id}{ext}"
+            destino = os.path.join(self.path_avatars, nombre_archivo)
+            shutil.copy(filename, destino)
+            # Actualizar en la DB
+            try:
+                database.actualizar_avatar_usuario(self.usuario_id, destino)
+            except:
+                pass
+            # Actualizar en memoria y re-renderizar sidebar
+            self.usuario_avatar_path = destino
+            self.mostrar_menu_principal(navigate=False)
+            messagebox.showinfo("Avatar", "Avatar actualizado correctamente.")
+        except Exception as e:
+            print(f"Error cambiando avatar: {e}")
+            messagebox.showerror("Error", "No se pudo actualizar la imagen")
+
     # --- MENÚ LATERAL ---
     def mostrar_menu_principal(self, navigate=True):
         vista_actual_class = VistaInicio
@@ -235,29 +277,41 @@ class App(ctk.CTk):
         profile_box = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         profile_box.pack(fill="x", padx=20, pady=(30, 10))
 
-        # Cargar avatar actual
-        img = self.obtener_avatar_usuario(self.usuario_avatar_path, size=(50, 50))
-        
-        if img: 
-            # Avatar en etiqueta
-            ctk.CTkLabel(profile_box, text="", image=img).pack(side="left", padx=(0, 12))
+        # Cargar avatar actual (tamaño reducido para sidebar)
+        img = self.obtener_avatar_usuario(self.usuario_avatar_path, size=(56, 56))
+
+        # Marco verde alrededor de la foto: recuadro sin esquinas redondeadas
+        avatar_frame = ctk.CTkFrame(profile_box, fg_color="transparent", width=60, height=60, corner_radius=0, border_width=2, border_color=config.COLOR_ACENTO)
+        avatar_frame.pack_propagate(False)
+        avatar_frame.pack(side="left", padx=(0, 12), pady=(4, 0))
+
+        # Usar etiqueta clicable (sin efecto hover grande) para evitar sobresalto visual
+        if img:
+            avatar_label = ctk.CTkLabel(avatar_frame, text="", image=img)
+            avatar_label.pack(expand=True)
+            avatar_label.bind("<Button-1>", lambda e: self.cambiar_avatar_usuario())
         else:
-            ctk.CTkLabel(profile_box, text="👤", font=("Arial", 30), text_color="gray").pack(side="left", padx=(0, 12))
-        
+            avatar_label = ctk.CTkLabel(avatar_frame, text="👤", font=("Arial", 22), text_color="gray")
+            avatar_label.pack(expand=True)
+            avatar_label.bind("<Button-1>", lambda e: self.cambiar_avatar_usuario())
+
+        # Información a la derecha del avatar: mantener same-gap y alineación superior
         info_box = ctk.CTkFrame(profile_box, fg_color="transparent")
-        info_box.pack(side="left", fill="x")
-        
+        info_box.pack(side="left", fill="x", pady=(4, 0))
+
+        # Nombre de usuario y botón cerrar sesión alineados (mismo espacio respecto a la foto)
         ctk.CTkLabel(info_box, text=self.usuario_nombre, font=config.FONT_BOTON, text_color=config.COLOR_TEXTO_BLANCO, anchor="w").pack(fill="x")
-        
-        ctk.CTkButton(info_box, text="Cerrar Sesión", height=18, width=0, 
+        ctk.CTkButton(info_box, text="Cerrar Sesión", height=18, width=0,
                       fg_color="transparent", text_color=config.COLOR_ROJO, hover_color="#333",
                       font=config.FONT_SMALL, anchor="w",
                       command=self.salir).pack(fill="x", pady=(2, 0))
 
         # 2. TALLER
         taller_box = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        taller_box.pack(fill="x", padx=20, pady=(0, 10))
-        ctk.CTkLabel(taller_box, text=(self.usuario_empresa or "Mi Taller").upper(), font=config.FONT_SMALL, text_color="gray", anchor="w").pack(fill="x")
+        taller_box.pack(fill="x", padx=20, pady=(6, 10))
+        # Mostrar nombre del taller centrado, en verde y más grande
+        nombre_taller = (self.usuario_empresa or "Mi Taller").upper()
+        ctk.CTkLabel(taller_box, text=nombre_taller, font=("Segoe UI", 12, "bold"), text_color=config.COLOR_ACENTO, anchor="center").pack(fill="x")
         ctk.CTkFrame(self.sidebar, height=1, fg_color=config.COLOR_SEPARADOR).pack(fill="x", padx=20, pady=5)
 
         # 3. MENU
@@ -268,7 +322,7 @@ class App(ctk.CTk):
         self.crear_boton("Dashboard", self.icon_home, self.ir_a_inicio)
         self.crear_titulo("PRODUCCIÓN")
         self.crear_boton("Nueva Impresión", self.icon_add, self.ir_a_nueva_impresion, destacado=True)
-        self.crear_boton("Planificador Masivo", None, self.ir_a_planificador)
+        self.crear_boton("Planificador", None, self.ir_a_planificador)
         self.crear_boton("Agenda", None, self.ir_a_agenda)
         self.crear_boton("Historial", self.icon_printer, self.ir_a_historial)
         self.crear_titulo("INVENTARIO")
@@ -286,7 +340,11 @@ class App(ctk.CTk):
         
         if navigate:
             self.ir_a_inicio()
-            self.after(1000, lambda: VentanaAnuncio(self))
+            # Proteger la apertura del anuncio en caso de error en la vista
+            try:
+                self.after(1000, lambda: VentanaAnuncio(self))
+            except Exception as e:
+                print(f"Error mostrando anuncio: {e}")
         else:
             if vista_actual_class == VistaInicio:
                 self.cambiar_vista(vista_actual_class, callback_nueva_impresion=self.ir_a_nueva_impresion)
@@ -338,9 +396,24 @@ class App(ctk.CTk):
     def ir_a_planificador(self): self.cambiar_vista(VistaPlanificador)
 
     def cambiar_vista(self, clase_vista, **kwargs):
-        if self.vista_actual: self.vista_actual.destroy()
-        self.vista_actual = clase_vista(self.main_area, user_id=self.usuario_id, **kwargs)
-        self.vista_actual.pack(fill="both", expand=True)
+        if self.vista_actual:
+            try: self.vista_actual.destroy()
+            except: pass
+        try:
+            self.vista_actual = clase_vista(self.main_area, user_id=self.usuario_id, **kwargs)
+            self.vista_actual.pack(fill="both", expand=True)
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            print(f"Error cargando vista {clase_vista}: {e}\n{tb}")
+            # Mostrar placeholder para evitar pantalla negra
+            for w in self.main_area.winfo_children():
+                try: w.destroy()
+                except: pass
+            err_frame = ctk.CTkFrame(self.main_area, fg_color=config.COLOR_TARJETA, corner_radius=15, border_width=2, border_color=config.COLOR_ACENTO)
+            err_frame.pack(fill="both", expand=True, padx=20, pady=20)
+            ctk.CTkLabel(err_frame, text="Error al cargar la vista", font=config.FONT_SUBTITULO, text_color="white").pack(pady=20)
+            ctk.CTkLabel(err_frame, text=tb, font=config.FONT_TEXTO, text_color="gray", wraplength=600).pack(pady=10)
 
 if __name__ == "__main__":
     app = App()

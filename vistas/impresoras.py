@@ -34,16 +34,40 @@ class VistaImpresoras(ctk.CTkFrame):
         # Título Principal
         ctk.CTkLabel(self, text="Mis Impresoras", font=FONT_TITULO, text_color=config.COLOR_TEXTO_BLANCO).pack(pady=(10, 5))
 
-        # --- 1. TIPS (Panel Superior) ---
-        self.frame_tips = ctk.CTkFrame(self, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, corner_radius=10)
-        self.frame_tips.pack(fill="x", padx=20, pady=10)
-        
+        # --- 1. TIPS (Panel Superior reducido) + PANEL CONSUMO (derecha) ---
+        # Usamos una fila con dos columnas: tips a la izquierda (más corto) y panel de consumo a la derecha
+        tips_row = ctk.CTkFrame(self, fg_color="transparent")
+        tips_row.pack(fill="x", padx=20, pady=10)
+        # Alineamos las columnas con el grid inferior: 4/6
+        tips_row.grid_columnconfigure(0, weight=4)
+        tips_row.grid_columnconfigure(1, weight=6)
+
+        self.frame_tips = ctk.CTkFrame(tips_row, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, corner_radius=10)
+        self.frame_tips.grid(row=0, column=0, sticky="nsew", padx=(0,8))
+
         lbl_tip_title = ctk.CTkLabel(self.frame_tips, text="📄 TIPS PARA AGREGAR IMPRESORAS", font=("Segoe UI", 12, "bold"), text_color=BORDER_COLOR)
         lbl_tip_title.pack(anchor="w", padx=15, pady=(10, 2))
-        
+
         lbl_tip_text = ctk.CTkLabel(self.frame_tips, text="• MARCA/MODELO: Selecciona de la lista. Si usas una marca genérica, elige 'OTROS'.\n• HORAS DE USO: Sirve para calcular el mantenimiento. Si es nueva, déjalo en 0.", 
-                                    font=("Segoe UI", 11), text_color="gray", justify="left")
+                        font=("Segoe UI", 11), text_color="gray", justify="left")
         lbl_tip_text.pack(anchor="w", padx=15, pady=(0, 10))
+
+        # Nuevo panel a la derecha: Consumo energético por zona (solo precio $/kWh)
+        self.frame_consumo = ctk.CTkFrame(tips_row, fg_color=config.COLOR_TARJETA, border_width=2, border_color=BORDER_COLOR, corner_radius=12)
+        self.frame_consumo.grid(row=0, column=1, sticky="nsew", padx=(8,0))
+        ctk.CTkLabel(self.frame_consumo, text="Consumo energético por zona", font=("Segoe UI", 14, "bold"), text_color=BORDER_COLOR).pack(anchor="w", padx=12, pady=(12,8))
+
+        # Precio por kWh (único campo)
+        ctk.CTkLabel(self.frame_consumo, text="Precio $/kWh:", font=("Segoe UI", 12), text_color="gray").pack(anchor="w", padx=12)
+        self.entry_precio_kwh = ctk.CTkEntry(self.frame_consumo, placeholder_text=str(getattr(config, 'COSTO_KW', 0.2)), height=30)
+        self.entry_precio_kwh.pack(fill="x", padx=12, pady=(8,8))
+
+        # Guardar precio en perfil de usuario
+        ctk.CTkButton(self.frame_consumo, text="Guardar Precio Zona", fg_color=BORDER_COLOR, hover_color=config.COLOR_ACENTO_HOVER, command=self.guardar_precio_kwh).pack(padx=12, pady=(6,10), fill="x")
+
+        # Mostrar precio actual guardado
+        self.lbl_precio_actual = ctk.CTkLabel(self.frame_consumo, text="Precio actual: -", font=("Segoe UI", 11), text_color="gray")
+        self.lbl_precio_actual.pack(anchor="w", padx=12, pady=(6,12))
 
         # --- GRID PRINCIPAL (2 Columnas) ---
         self.main_grid = ctk.CTkFrame(self, fg_color="transparent")
@@ -187,7 +211,62 @@ class VistaImpresoras(ctk.CTkFrame):
                                     command=lambda x=iid: self.eliminar(x))
             btn_del.pack(side="right", padx=10)
 
+        # Actualizar etiqueta de precio actual guardado
+        try:
+            precio = database.obtener_precio_kwh(self.user_id)
+            if precio is None:
+                self.lbl_precio_actual.configure(text="Precio actual: -")
+            else:
+                self.lbl_precio_actual.configure(text=f"Precio actual: ${precio:.2f} / kWh")
+        except:
+            try: self.lbl_precio_actual.configure(text="Precio actual: -")
+            except: pass
+
     def eliminar(self, id_imp):
         if messagebox.askyesno("Confirmar", "¿Eliminar esta impresora?"):
             database.eliminar_impresora(id_imp)
             self.cargar_lista()
+
+    def calcular_costos_zona(self):
+        # Leer inputs
+        try:
+            precio_kwh = float(self.entry_precio_kwh.get()) if self.entry_precio_kwh.get() else float(getattr(config, 'COSTO_KW', 0.2))
+        except:
+            messagebox.showerror("Error", "Precio $/kWh inválido")
+            return
+
+        impresoras = database.obtener_impresoras(self.user_id)
+        # Limpiar resultados previos
+        try:
+            for w in self.result_consumo.winfo_children(): w.destroy()
+        except: pass
+
+        total_cost = 0.0
+        if not impresoras:
+            messagebox.showinfo("Info", "No hay impresoras registradas para calcular.")
+            return
+
+        # Calcular costo por hora para cada impresora usando precio_kwh
+        for imp in impresoras:
+            nombre = imp[1]
+            power = imp[6] if len(imp) > 6 and imp[6] else 0.0
+            cost = power * precio_kwh * 1.0
+            total_cost += cost
+            txt = f"{nombre}: ${cost:.2f} ({power:.3f} kW)"
+            ctk.CTkLabel(self.result_consumo, text=txt, font=("Segoe UI", 11), text_color="white", anchor="w").pack(fill="x", padx=6, pady=2)
+
+        ctk.CTkLabel(self.result_consumo, text=f"Total costo zona (por hora): ${total_cost:.2f}", font=("Segoe UI", 12, "bold"), text_color=BORDER_COLOR).pack(fill="x", padx=6, pady=(8,4))
+
+    def guardar_precio_kwh(self):
+        try:
+            precio = float(self.entry_precio_kwh.get())
+        except:
+            messagebox.showerror("Error", "Precio $/kWh inválido")
+            return
+
+        try:
+            database.guardar_precio_kwh(self.user_id, precio)
+            self.lbl_precio_actual.configure(text=f"Precio actual: ${precio:.2f} / kWh")
+            messagebox.showinfo("Guardado", "Precio de zona guardado correctamente.")
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo guardar el precio: {e}")

@@ -48,13 +48,22 @@ class VistaInicio(ctk.CTkFrame):
         # ============================================================
         # 2. CARRUSEL (Arriba Derecha)
         # ============================================================
-        self.frame_carousel = ctk.CTkFrame(self, fg_color="transparent")
+        # Contenedor del anuncio: usar mismo estilo que otras tarjetas para mantener consistencia
+        self.frame_carousel = ctk.CTkFrame(self, fg_color=config.COLOR_TARJETA, corner_radius=15,
+                           border_width=2, border_color=config.COLOR_ACENTO)
         self.frame_carousel.grid(row=0, column=1, padx=(10, 0), pady=(0, 10), sticky="nsew")
-        
-        self.btn_anuncio = ctk.CTkButton(self.frame_carousel, text="", 
-                                         fg_color=config.COLOR_ACENTO, corner_radius=15, 
-                                         cursor="hand2", border_width=2, border_color=config.COLOR_ACENTO, 
-                                         command=self.click_anuncio)
+
+        # Contenedor interno para que el borde del frame externo quede visible
+        # y para poder controlar el padding interno donde irá la imagen.
+        self.inner_carousel = ctk.CTkFrame(self.frame_carousel, fg_color=config.COLOR_TARJETA, corner_radius=13)
+        self.inner_carousel.pack(fill="both", expand=True, padx=8, pady=8)
+
+        # Botón interior: transparente y sin borde, heredando esquinas redondeadas
+        # La imagen se colocará aquí y ocupará todo el espacio disponible.
+        self.btn_anuncio = ctk.CTkButton(self.inner_carousel, text="",
+                 fg_color="transparent", corner_radius=13,
+                 cursor="hand2", border_width=0,
+                 command=self.click_anuncio)
         self.btn_anuncio.pack(fill="both", expand=True)
         
         # CAMBIO: Fuente dinámica para el texto del anuncio
@@ -65,6 +74,8 @@ class VistaInicio(ctk.CTkFrame):
         self.lbl_anuncio_text.bind("<Button-1>", lambda e: self.click_anuncio())
         
         self.idx_anuncio = 0
+        # Bandera para fijar tamaño interno del carrusel en la primera medición
+        self._carousel_fixed_size_set = False
         ruta_assets = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "anuncios")
         
         self.anuncios = [
@@ -73,7 +84,8 @@ class VistaInicio(ctk.CTkFrame):
             {"img": os.path.join(ruta_assets, "anuncio2.png"), "url": "https://google.com"},
             {"img": os.path.join(ruta_assets, "anuncio3.png"), "url": "https://youtube.com"}
         ]
-        self.animar_carrusel()
+        # Llamar a la animación con un pequeño delay para que la geometría se establezca
+        self.after(150, self.animar_carrusel)
 
         # ============================================================
         # 3. LISTA (Abajo Izquierda)
@@ -120,12 +132,47 @@ class VistaInicio(ctk.CTkFrame):
         return color_var
 
     def inicializar_grafico(self):
-        raw_data = database.obtener_balance_ultimos_dias(self.user_id)
-        if not raw_data or len(raw_data) < 2: 
+        try:
+            raw_data = database.obtener_balance_ultimos_dias(self.user_id)
+        except Exception as e:
+            print(f"Error al obtener balance: {e}")
+            raw_data = None
+
+        # TRACE temporales para depuración
+        try:
+            print(f"TRACE VistaInicio.user_id={self.user_id} raw_data_len={len(raw_data) if raw_data is not None else 0}")
+            if raw_data:
+                for r in raw_data[:10]:
+                    print("TRACE ROW:", r)
+        except Exception:
+            pass
+
+        if not raw_data or len(raw_data) < 2:
             ctk.CTkLabel(self.plot_container, text="Faltan datos", font=config.FONT_TEXTO, text_color="gray").pack(expand=True)
             return
 
-        fechas = [d[0][5:] for d in raw_data]; costos = [d[1] for d in raw_data]; ingresos = [d[2] for d in raw_data]
+        # Coerción segura: algunos valores pueden venir como floats o None, protegemos los accesos
+        fechas = []
+        costos = []
+        ingresos = []
+        for d in raw_data:
+            try:
+                dia = d[0]
+                if dia is None:
+                    fechas.append("")
+                else:
+                    dia_str = str(dia)
+                    fechas.append(dia_str[5:] if len(dia_str) >= 5 else dia_str)
+            except Exception:
+                fechas.append("")
+            try:
+                costos.append(float(d[1]) if d[1] is not None else 0.0)
+            except Exception:
+                costos.append(0.0)
+            try:
+                ingresos.append(float(d[2]) if d[2] is not None else 0.0)
+            except Exception:
+                ingresos.append(0.0)
         bg = self.obtener_color_hex(config.COLOR_TARJETA)
         text = "black" if ctk.get_appearance_mode() == "Light" else "white"
         grid = "#cccccc" if ctk.get_appearance_mode() == "Light" else "#444444"
@@ -165,19 +212,38 @@ class VistaInicio(ctk.CTkFrame):
         dato = self.anuncios[self.idx_anuncio]
         
         try:
-            # 1. Cargar la imagen
-            # Size=(500, 600) fuerza a que se vea bien en ese cuadro
-            imagen_ctk = ctk.CTkImage(Image.open(dato["img"]), size=(300, 380))
-            
-            # 2. Ponerla en el botón
-            self.btn_anuncio.configure(image=imagen_ctk, fg_color="transparent")
-            
-            # 3. Borrar el texto superpuesto (porque la imagen ya debería tener el texto publicitario)
-            self.lbl_anuncio_text.configure(text="") 
-            
+            # Intentamos adaptar la imagen al tamaño actual del botón para que rellene el contenedor
+            w = self.btn_anuncio.winfo_width()
+            h = self.btn_anuncio.winfo_height()
+            # Si la geometría aún no está lista, reintentar dentro de 100ms
+            if w < 10 or h < 10:
+                self.after(100, self.animar_carrusel)
+                return
+
+            # Fijar el tamaño interno la primera vez para evitar que la imagen
+            # cambie la geometría del widget en cada ciclo (feedback loop)
+            if not self._carousel_fixed_size_set:
+                try:
+                    self.inner_carousel.configure(width=w, height=h)
+                    # Evitamos que el contenido cambie el tamaño del contenedor
+                    self.inner_carousel.pack_propagate(False)
+                except:
+                    pass
+                self._carousel_fixed_size_set = True
+
+            target_size = (max(1, w), max(1, h))
+            corner = min(15, int(min(target_size) * 0.08))
+            imagen_ctk = self._crear_imagen_redondeada(dato["img"], target_size, corner)
+
+            # Ponerla en el botón, asegurando que ocupe todo el espacio interior
+            if imagen_ctk:
+                self.btn_anuncio.configure(image=imagen_ctk, fg_color="transparent")
+                self.lbl_anuncio_text.configure(text="")
+            else:
+                self.btn_anuncio.configure(image=None, fg_color=config.COLOR_ACENTO)
+
         except Exception as e:
             print(f"Error cargando imagen: {e}")
-            # Si falla, poner un color de respaldo
             self.btn_anuncio.configure(image=None, fg_color=config.COLOR_ACENTO)
 
         # Avanzar al siguiente
@@ -187,6 +253,31 @@ class VistaInicio(ctk.CTkFrame):
     def click_anuncio(self):
         idx = (self.idx_anuncio - 1) % len(self.anuncios)
         webbrowser.open(self.anuncios[idx]["url"])
+
+    def _crear_imagen_redondeada(self, ruta, size, radius):
+        """Carga la imagen `ruta`, la redimensiona a `size` y aplica máscara de esquinas redondeadas.
+        Devuelve un `CTkImage` listo para usar."""
+        try:
+            img = Image.open(ruta).convert("RGBA")
+            img = img.resize(size, Image.LANCZOS)
+
+            # Crear máscara redondeada
+            mask = Image.new('L', size, 0)
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(mask)
+            draw.rounded_rectangle([(0,0), (size[0], size[1])], radius=radius, fill=255)
+
+            # Aplicar máscara
+            img.putalpha(mask)
+
+            return ctk.CTkImage(img, size=size)
+        except Exception as e:
+            print(f"Error creando imagen redondeada: {e}")
+            # Fallback simple
+            try:
+                return ctk.CTkImage(Image.open(ruta), size=(300, 380))
+            except:
+                return None
 
     def crear_kpi(self, r, c, t, v, col, icon):
         # KPI con borde verde
@@ -203,14 +294,27 @@ class VistaInicio(ctk.CTkFrame):
         agendas = database.obtener_ultimas_agendas(self.user_id, limit=5)
         if not agendas: return
         for ped in agendas:
-            bg_row = ("#e1e5ea", "#252a36") 
+            bg_row = ("#e1e5ea", "#252a36")
             row = ctk.CTkFrame(self.scroll_lista, fg_color=bg_row, corner_radius=8)
-            row.pack(fill="x", pady=4)
-            fecha = ped[8] if ped[8] else "S/F"
-            # CAMBIO: Fuentes dinámicas en la lista también
-            ctk.CTkLabel(row, text=fecha[:5], font=config.FONT_SMALL, width=45, text_color="gray").pack(side="left", padx=5)
-            ctk.CTkLabel(row, text=ped[1], font=config.FONT_BOTON, text_color=config.COLOR_TEXTO_BLANCO).pack(side="left")
-            ctk.CTkLabel(row, text="Pendiente", font=config.FONT_SMALL, text_color="#e67e22").pack(side="right", padx=10)
+            row.pack(fill="x", pady=6, padx=6)
+
+            # Extraer campos guardando contra índices faltantes
+            nombre = str(ped[2]) if len(ped) > 2 and ped[2] else "(Sin nombre)"
+            delivery = str(ped[9]) if len(ped) > 9 and ped[9] else "S/F"
+            gan = ped[10] if len(ped) > 10 and ped[10] is not None else 0.0
+            # En algunas bases antiguas la columna 'estado' quedó desplazada al índice 12
+            estado = str(ped[12]) if len(ped) > 12 and ped[12] else (str(ped[11]) if len(ped) > 11 and ped[11] else "Pendiente")
+
+            # Mostrar todo en una sola línea: Nombre | Fecha | Ganancia | Estado
+            # Nombre (izquierda, expandible)
+            ctk.CTkLabel(row, text=nombre, font=config.FONT_BOTON, text_color=config.COLOR_TEXTO_BLANCO).pack(side="left", fill="x", expand=True, padx=8)
+            # Fecha (pequeña)
+            ctk.CTkLabel(row, text=delivery, font=config.FONT_SMALL, width=120, text_color="gray").pack(side="left", padx=8)
+            # Ganancia
+            ctk.CTkLabel(row, text=f"${gan:,.2f}", font=config.FONT_BOTON, text_color=config.COLOR_ACENTO).pack(side="left", padx=8)
+            # Estado (verde si 'Realizado' o similar)
+            color_estado = ("#27ae60" if estado.lower().startswith("r") else "#e67e22")
+            ctk.CTkLabel(row, text=estado, font=config.FONT_SMALL, text_color=color_estado).pack(side="left", padx=8)
 
     def destroy(self):
         if self.loop_id: 
