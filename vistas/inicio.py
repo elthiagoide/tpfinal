@@ -1,285 +1,221 @@
 import customtkinter as ctk
 import sys
 import os
-import config # Importamos para usar los colores
+import config
+from datetime import datetime
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import numpy as np
+from scipy.interpolate import make_interp_spline
+import webbrowser
+from PIL import Image
 
-# Importar database
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import database
 
 class VistaInicio(ctk.CTkFrame):
     def __init__(self, master, user_id, callback_nueva_impresion, **kwargs):
         super().__init__(master, **kwargs)
-        self.configure(fg_color=config.COLOR_FONDO_APP) # Fondo oscuro general
+        self.configure(fg_color=config.COLOR_FONDO_APP)
         self.user_id = user_id
-        self.callback_nueva_impresion = callback_nueva_impresion
+        self.callback_nueva_impresion = callback_nueva_impresion # Callback para navegar
+        self.loop_id = None
 
-        # Título
-        ctk.CTkLabel(self, text="Panel de Control", font=("Segoe UI", 24, "bold"), text_color="white").pack(pady=(30, 5))
-        ctk.CTkLabel(self, text="Resumen de actividad", font=("Segoe UI", 14), text_color="gray").pack(pady=(0, 30))
+        # Layout Principal
+        self.grid_columnconfigure(0, weight=7)
+        self.grid_columnconfigure(1, weight=3)
+        self.grid_rowconfigure(0, weight=6)
+        self.grid_rowconfigure(1, weight=4)
 
-        # --- TARJETAS DE ESTADÍSTICAS (GRID) ---
-        # Usamos un Grid para que se ordenen mejor
-        frame_stats = ctk.CTkFrame(self, fg_color="transparent")
-        frame_stats.pack(fill="x", padx=40)
+        # ============================================================
+        # 1. GRÁFICO (Arriba Izquierda)
+        # ============================================================
+        self.frame_graph = ctk.CTkFrame(self, fg_color=config.COLOR_TARJETA, corner_radius=15, 
+                                        border_width=2, border_color=config.COLOR_ACENTO)
+        self.frame_graph.grid(row=0, column=0, padx=(0, 10), pady=(0, 10), sticky="nsew")
         
-        # Configuración de columnas para que se centren
-        frame_stats.grid_columnconfigure(0, weight=1)
-        frame_stats.grid_columnconfigure(1, weight=1)
-        frame_stats.grid_columnconfigure(2, weight=1)
-
-        # Datos
-        cant_impresoras = database.contar_impresoras(self.user_id)
-        cant_bobinas = database.contar_bobinas(self.user_id)
-        cant_trabajos = database.contar_trabajos(self.user_id)
-        gasto_total = database.calcular_gasto_total(self.user_id)
-
-        # Tarjetas "Dark Mode"
-        # Azul Cyan para Impresoras, Naranja para Bobinas, Verde para Trabajos
-        self.crear_tarjeta_pro(frame_stats, 0, "IMPRESORAS", str(cant_impresoras), "#3498db", "🖨️")
-        self.crear_tarjeta_pro(frame_stats, 1, "BOBINAS", str(cant_bobinas), "#e67e22", "🧵")
-        self.crear_tarjeta_pro(frame_stats, 2, "TRABAJOS", str(cant_trabajos), "#2ecc71", "✅")
+        h_graph = ctk.CTkFrame(self.frame_graph, fg_color="transparent")
+        h_graph.pack(fill="x", padx=20, pady=(15, 5))
         
-        # --- SECCIÓN DINERO ---
-        frame_dinero = ctk.CTkFrame(self, fg_color=config.COLOR_TARJETA, corner_radius=10)
-        # Mantener mismo margen horizontal que otras secciones
-        frame_dinero.pack(pady=40, ipadx=20, ipady=10, fill='x', padx=40)
-
-        # Controles de consumo energético en el dashboard
-        opts = ctk.CTkFrame(self, fg_color="transparent")
-        opts.pack(padx=10, pady=(10,0))
-        self.switch_mostrar = ctk.CTkSwitch(opts, text="Incluir costo energético", progress_color=config.COLOR_VERDE_BAMBU, command=self.toggle_consumo)
-        if config.MOSTRAR_CONSUMO:
-            self.switch_mostrar.select()
-        else:
-            self.switch_mostrar.deselect()
-        self.switch_mostrar.pack(side="left", padx=(0,10))
-
-        ctk.CTkLabel(opts, text="Costo kW-h:", text_color="gray").pack(side="left")
-        self.entry_costokw = ctk.CTkEntry(opts, placeholder_text=str(config.COSTO_KW), width=120, fg_color="#1a1a1a", border_color="#444", text_color="white")
-        self.entry_costokw.pack(side="left", padx=6)
-        # removido botón 'Aplicar' (no requerido). Mostrar valor actual en el entry
-        try:
-            self.entry_costokw.insert(0, str(config.COSTO_KW))
-        except Exception:
-            pass
-
-        # (Los switches de modo y accesibilidad están en la barra lateral)
-
-        # Centered small box containing only the two big cards (Costo + Ganancia)
-        center_box = ctk.CTkFrame(frame_dinero, fg_color="transparent")
-        # limitar ancho para que no ocupe todo el espacio
-        center_box.configure(width=900)
-        center_box.pack(pady=8)
-        center_box.pack_propagate(False)
-        # usar grid para que ambas tarjetas queden alineadas
-        center_box.grid_columnconfigure(0, weight=1)
-        center_box.grid_columnconfigure(1, weight=1)
-
-        card_cost = ctk.CTkFrame(center_box, fg_color=config.COLOR_TARJETA, corner_radius=8, width=420)
-        card_cost.grid(row=0, column=0, padx=24, pady=12, sticky='n')
-        ctk.CTkLabel(card_cost, text="COSTO TOTAL DE PRODUCCIÓN", font=("Segoe UI", 12, "bold"), text_color="gray").pack()
-        self.label_gasto_total = ctk.CTkLabel(card_cost, text=f"${gasto_total:,.2f}", font=("Segoe UI", 32, "bold"), text_color="white")
-        self.label_gasto_total.pack(pady=(2,8))
-        # detalles energéticos (no empaquetados por defecto)
-        self.label_energy_hour = ctk.CTkLabel(card_cost, text="", text_color="gray")
-        self.label_energy_acum = ctk.CTkLabel(card_cost, text="", text_color="gray")
-        self.label_combined = ctk.CTkLabel(card_cost, text="", font=("Segoe UI", 14, "bold"), text_color="white")
-
-        card_gain = ctk.CTkFrame(center_box, fg_color=config.COLOR_TARJETA, corner_radius=8, width=420)
-        card_gain.grid(row=0, column=1, padx=24, pady=12, sticky='n')
-        ctk.CTkLabel(card_gain, text="GANANCIA TOTAL", font=("Segoe UI", 12, "bold"), text_color="gray").pack()
-        self.label_ganancia_total = ctk.CTkLabel(card_gain, text="$0.00", font=("Segoe UI", 32, "bold"), text_color="#9ee59e")
-        self.label_ganancia_total.pack(pady=(2,8))
-        self.label_ganancia_detail = ctk.CTkLabel(card_gain, text="", text_color="gray")
-        self.label_ganancia_detail.pack()
-
-        # Preview area moved OUTSIDE the big frame; create placeholder here and pack later
-        # (we'll create a separate preview block after the frame_dinero)
-        self.preview_container = None
-
-        # Actualizar valores con lo que haya en la DB
-        self.actualizar_consumo_dashboard()
-
-        # --- Sección PREVIEWS fuera del cuadro grande ---
-        preview_outer = ctk.CTkFrame(self, fg_color="transparent")
-        preview_outer.pack(fill='x', padx=40)
-        preview_frame = ctk.CTkFrame(preview_outer, fg_color=config.COLOR_TARJETA, corner_radius=8)
-        preview_frame.pack(padx=6, pady=6, fill='x')
-        ctk.CTkLabel(preview_frame, text="Últimas agendas", font=("Segoe UI", 12, "bold"), text_color="white").pack(pady=(6,4))
-        # Header con botón único para ver todas las agendas
-        header_row = ctk.CTkFrame(preview_frame, fg_color="transparent")
-        header_row.pack(fill='x', padx=6)
-        ctk.CTkLabel(header_row, text="Últimas agendas", font=("Segoe UI", 12, "bold"), text_color="white").pack(side='left', pady=(6,4))
-        ctk.CTkButton(header_row, text="Ver agendas", width=120, command=self._ver_todas_las_agendas).pack(side='right', pady=(6,4))
-
-        # Contenedor con dos columnas para up to 2 previews
-        self.preview_container = ctk.CTkFrame(preview_frame, fg_color="transparent")
-        self.preview_container.pack(padx=6, pady=4, fill='x')
-        self.preview_container.grid_columnconfigure(0, weight=1)
-        self.preview_container.grid_columnconfigure(1, weight=1)
-
-        # Cargar previews iniciales
-        try:
-            self.actualizar_previews_y_stats()
-        except Exception:
-            pass
-
-        # Nota: removido botón flotante "Nueva Impresión" para evitar comportamiento inconsistente
-
-    def crear_tarjeta_pro(self, parent, col_idx, titulo, numero, color_acento, icono):
-        # La tarjeta es GRIS OSCURO, no del color
-        card = ctk.CTkFrame(parent, fg_color=config.COLOR_TARJETA, corner_radius=10, border_width=1, border_color="#333")
-        card.grid(row=0, column=col_idx, padx=10, sticky="ew")
+        # AQUI ESTÁ EL CAMBIO: Usamos config.FONT_SUBTITULO en vez de ("Arial", 20)
+        ctk.CTkLabel(h_graph, text="Balance Financiero (7 Días)", 
+                     font=config.FONT_SUBTITULO, text_color=config.COLOR_TEXTO_BLANCO).pack(side="left")
         
-        # Icono y Título
-        header = ctk.CTkFrame(card, fg_color="transparent")
-        header.pack(pady=(15, 5))
+        self.plot_container = ctk.CTkFrame(self.frame_graph, fg_color="transparent")
+        self.plot_container.pack(fill="both", expand=True, padx=10, pady=10)
+        self.inicializar_grafico()
+
+        # ============================================================
+        # 2. CARRUSEL (Arriba Derecha)
+        # ============================================================
+        self.frame_carousel = ctk.CTkFrame(self, fg_color="transparent")
+        self.frame_carousel.grid(row=0, column=1, padx=(10, 0), pady=(0, 10), sticky="nsew")
         
-        ctk.CTkLabel(header, text=icono, font=("Segoe UI", 20)).pack(side="left", padx=5)
-        ctk.CTkLabel(header, text=titulo, font=("Segoe UI", 12, "bold"), text_color="gray").pack(side="left")
+        self.btn_anuncio = ctk.CTkButton(self.frame_carousel, text="", 
+                                         fg_color=config.COLOR_ACENTO, corner_radius=15, 
+                                         cursor="hand2", border_width=2, border_color=config.COLOR_ACENTO, 
+                                         command=self.click_anuncio)
+        self.btn_anuncio.pack(fill="both", expand=True)
+        
+        # CAMBIO: Fuente dinámica para el texto del anuncio
+        self.lbl_anuncio_text = ctk.CTkLabel(self.frame_carousel, text="", 
+                                             font=config.FONT_TITULO, text_color="white", 
+                                             bg_color=config.COLOR_ACENTO, cursor="hand2")
+        self.lbl_anuncio_text.place(relx=0.5, rely=0.5, anchor="center")
+        self.lbl_anuncio_text.bind("<Button-1>", lambda e: self.click_anuncio())
+        
+        self.idx_anuncio = 0
+        ruta_assets = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "anuncios")
+        
+        self.anuncios = [
+            # Pon el nombre exacto de tus archivos aquí
+            {"img": os.path.join(ruta_assets, "anuncio1.png"), "url": "https://mercadolibre.com.ar"},
+            {"img": os.path.join(ruta_assets, "anuncio2.png"), "url": "https://google.com"},
+            {"img": os.path.join(ruta_assets, "anuncio3.png"), "url": "https://youtube.com"}
+        ]
+        self.animar_carrusel()
 
-        # El Número es el que lleva el COLOR
-        ctk.CTkLabel(card, text=numero, font=("Segoe UI", 40, "bold"), text_color=color_acento).pack(pady=(0, 15))
+        # ============================================================
+        # 3. LISTA (Abajo Izquierda)
+        # ============================================================
+        self.frame_lista = ctk.CTkFrame(self, fg_color=config.COLOR_TARJETA, corner_radius=15, 
+                                        border_width=2, border_color=config.COLOR_ACENTO)
+        self.frame_lista.grid(row=1, column=0, padx=(0, 10), pady=(10, 0), sticky="nsew")
 
-    def aplicar_costo(self):
+        h_lista = ctk.CTkFrame(self.frame_lista, fg_color="transparent")
+        h_lista.pack(fill="x", padx=20, pady=15)
+        
+        ctk.CTkLabel(h_lista, text="Próximas Entregas", 
+                     font=config.FONT_SUBTITULO, text_color=config.COLOR_TEXTO_BLANCO).pack(side="left")
+        
+        ctk.CTkButton(h_lista, text="Ver Agenda ➔", width=100, height=25, 
+                      fg_color=config.COLOR_TEXTO_BLANCO, text_color=config.COLOR_FONDO_APP, 
+                      hover_color="gray", font=config.FONT_SMALL, 
+                      command=lambda: master.master.ir_a_agenda()).pack(side="right")
+
+        self.scroll_lista = ctk.CTkScrollableFrame(self.frame_lista, fg_color="transparent")
+        self.scroll_lista.pack(fill="both", expand=True, padx=10, pady=5)
+        self.cargar_lista_entregas()
+
+        # ============================================================
+        # 4. KPI (Abajo Derecha)
+        # ============================================================
+        self.frame_kpi = ctk.CTkFrame(self, fg_color="transparent")
+        self.frame_kpi.grid(row=1, column=1, padx=(10, 0), pady=(10, 0), sticky="nsew")
+        self.frame_kpi.grid_columnconfigure(0, weight=1); self.frame_kpi.grid_columnconfigure(1, weight=1)
+        self.frame_kpi.grid_rowconfigure(0, weight=1); self.frame_kpi.grid_rowconfigure(1, weight=1)
+
+        ingresos = database.calcular_ingresos_total(self.user_id)
+        costos = database.calcular_gasto_total(self.user_id)
+        
+        self.crear_kpi(0, 0, "Ganancia", f"${(ingresos-costos):,.0f}", config.COLOR_ACENTO, "💰")
+        self.crear_kpi(0, 1, "Costos", f"${costos:,.0f}", config.COLOR_ROJO, "📉")
+        self.crear_kpi(1, 0, "Pendientes", str(database.contar_proyectos_agenda(self.user_id)), "#3498db", "⏳")
+        self.crear_kpi(1, 1, "Realizados", str(database.contar_trabajos(self.user_id)), "#95a5a6", "✅")
+
+    # --- MÉTODOS ---
+    def obtener_color_hex(self, color_var):
+        modo = ctk.get_appearance_mode()
+        if isinstance(color_var, tuple): return color_var[0] if modo == "Light" else color_var[1]
+        return color_var
+
+    def inicializar_grafico(self):
+        raw_data = database.obtener_balance_ultimos_dias(self.user_id)
+        if not raw_data or len(raw_data) < 2: 
+            ctk.CTkLabel(self.plot_container, text="Faltan datos", font=config.FONT_TEXTO, text_color="gray").pack(expand=True)
+            return
+
+        fechas = [d[0][5:] for d in raw_data]; costos = [d[1] for d in raw_data]; ingresos = [d[2] for d in raw_data]
+        bg = self.obtener_color_hex(config.COLOR_TARJETA)
+        text = "black" if ctk.get_appearance_mode() == "Light" else "white"
+        grid = "#cccccc" if ctk.get_appearance_mode() == "Light" else "#444444"
+        acento = self.obtener_color_hex(config.COLOR_ACENTO)
+        rojo = self.obtener_color_hex(config.COLOR_ROJO)
+
+        x = np.arange(len(fechas))
+        x_smooth = np.linspace(x.min(), x.max(), 300)
         try:
-            v = float(self.entry_costokw.get())
-            config.COSTO_KW = v
-            self.actualizar_consumo_dashboard()
-        except ValueError:
-            pass
+            y_costos = [max(0,v) for v in make_interp_spline(x, costos, k=3)(x_smooth)]
+            y_ing = [max(0,v) for v in make_interp_spline(x, ingresos, k=3)(x_smooth)]
+        except: x_smooth, y_costos, y_ing = x, costos, ingresos
 
-    def toggle_consumo(self):
-        config.MOSTRAR_CONSUMO = bool(self.switch_mostrar.get())
-        self.actualizar_consumo_dashboard()
+        if ctk.get_appearance_mode() == "Light": plt.style.use('default')
+        else: plt.style.use('dark_background')
 
-    def actualizar_consumo_dashboard(self):
-        # recalcula el consumo total y muestra/oculta etiquetas según config
+        fig, ax = plt.subplots(figsize=(6, 3), dpi=100)
+        fig.patch.set_facecolor(bg); ax.set_facecolor(bg)
+        for spine in ax.spines.values(): spine.set_visible(False)
+        ax.tick_params(left=False, bottom=False, labelcolor=text, labelsize=8)
+        ax.grid(axis='y', color=grid, linestyle='--', linewidth=0.5, alpha=0.5)
+        
+        ax.plot(x_smooth, y_costos, color=rojo, linestyle='--', alpha=0.8)
+        ax.fill_between(x_smooth, y_costos, color=rojo, alpha=0.1)
+        ax.plot(x_smooth, y_ing, color=acento, linewidth=2.5)
+        ax.fill_between(x_smooth, y_ing, color=acento, alpha=0.2)
+        if len(fechas) > 0:
+            ax.set_xticks(x); ax.set_xticklabels(fechas, color=text)
+
+        canvas = FigureCanvasTkAgg(fig, master=self.plot_container)
+        canvas.draw(); canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    def animar_carrusel(self):
+        if not self.winfo_exists(): return
+        
+        # Obtener datos del anuncio actual
+        dato = self.anuncios[self.idx_anuncio]
+        
         try:
-            costo = float(config.COSTO_KW)
-        except:
-            costo = 0.0
+            # 1. Cargar la imagen
+            # Size=(500, 600) fuerza a que se vea bien en ese cuadro
+            imagen_ctk = ctk.CTkImage(Image.open(dato["img"]), size=(300, 380))
+            
+            # 2. Ponerla en el botón
+            self.btn_anuncio.configure(image=imagen_ctk, fg_color="transparent")
+            
+            # 3. Borrar el texto superpuesto (porque la imagen ya debería tener el texto publicitario)
+            self.lbl_anuncio_text.configure(text="") 
+            
+        except Exception as e:
+            print(f"Error cargando imagen: {e}")
+            # Si falla, poner un color de respaldo
+            self.btn_anuncio.configure(image=None, fg_color=config.COLOR_ACENTO)
 
-        # obtener impresoras y sumar
-        impresoras = database.obtener_impresoras(self.user_id)
-        total_kw = 0.0
-        total_energy_cost_acum = 0.0
-        for imp in impresoras:
-            # imp: id, nombre, marca, modelo, estado, horas_uso, power_kw?
-            horas = imp[5] if len(imp) > 5 else 0.0
-            power_kw = imp[6] if len(imp) > 6 else 0.0
-            total_kw += power_kw
-            total_energy_cost_acum += (power_kw * horas) * costo
+        # Avanzar al siguiente
+        self.idx_anuncio = (self.idx_anuncio + 1) % len(self.anuncios)
+        self.loop_id = self.after(4000, self.animar_carrusel)
 
-        costo_por_hora = total_kw * costo
+    def click_anuncio(self):
+        idx = (self.idx_anuncio - 1) % len(self.anuncios)
+        webbrowser.open(self.anuncios[idx]["url"])
 
-        gasto_total = database.calcular_gasto_total(self.user_id) or 0.0
-        ingresos_total = database.calcular_ingresos_total(self.user_id) or 0.0
+    def crear_kpi(self, r, c, t, v, col, icon):
+        # KPI con borde verde
+        card = ctk.CTkFrame(self.frame_kpi, fg_color=config.COLOR_TARJETA, corner_radius=15, 
+                            border_width=2, border_color=config.COLOR_ACENTO)
+        card.grid(row=r, column=c, padx=5, pady=5, sticky="nsew")
+        ctk.CTkLabel(card, text=icon, font=("Segoe UI", 16)).pack(anchor="w", padx=15, pady=(10,0))
+        
+        # CAMBIO: Usamos FONT_TITULO y FONT_SMALL
+        ctk.CTkLabel(card, text=v, font=config.FONT_TITULO, text_color=config.COLOR_TEXTO_BLANCO).pack(anchor="w", padx=15)
+        ctk.CTkLabel(card, text=t, font=config.FONT_SMALL, text_color=config.COLOR_TEXTO_GRIS).pack(anchor="w", padx=15, pady=(0,10))
 
-        # Mostrar u ocultar detalles energéticos según toggle
-        if config.MOSTRAR_CONSUMO:
-            # actualizar textos
-            try:
-                self.label_energy_hour.configure(text=f"Consumo total por hora: {total_kw:.2f} kW -> Costo/h: {costo_por_hora:.2f}")
-                self.label_energy_acum.configure(text=f"Costo energético acumulado (según horas registradas): {total_energy_cost_acum:.2f}")
-                self.label_gasto_total.configure(text=f"${gasto_total:,.2f}")
-                self.label_combined.configure(text=f"Costo total estimado (material + energía): ${gasto_total + total_energy_cost_acum:.2f}")
-            except Exception:
-                pass
-            # pack energy labels si no están visibles
-            try:
-                if not self.label_energy_hour.winfo_ismapped():
-                    self.label_energy_hour.pack()
-                if not self.label_energy_acum.winfo_ismapped():
-                    self.label_energy_acum.pack()
-                if not self.label_combined.winfo_ismapped():
-                    self.label_combined.pack(pady=(6,0))
-            except Exception:
-                pass
+    def cargar_lista_entregas(self):
+        agendas = database.obtener_ultimas_agendas(self.user_id, limit=5)
+        if not agendas: return
+        for ped in agendas:
+            bg_row = ("#e1e5ea", "#252a36") 
+            row = ctk.CTkFrame(self.scroll_lista, fg_color=bg_row, corner_radius=8)
+            row.pack(fill="x", pady=4)
+            fecha = ped[8] if ped[8] else "S/F"
+            # CAMBIO: Fuentes dinámicas en la lista también
+            ctk.CTkLabel(row, text=fecha[:5], font=config.FONT_SMALL, width=45, text_color="gray").pack(side="left", padx=5)
+            ctk.CTkLabel(row, text=ped[1], font=config.FONT_BOTON, text_color=config.COLOR_TEXTO_BLANCO).pack(side="left")
+            ctk.CTkLabel(row, text="Pendiente", font=config.FONT_SMALL, text_color="#e67e22").pack(side="right", padx=10)
 
-            # ganancia = ingresos - (gasto + energia)
-            gan_total = ingresos_total - (gasto_total + total_energy_cost_acum)
-            self.label_ganancia_total.configure(text=f"${gan_total:,.2f}")
-            self.label_ganancia_detail.configure(text=f"Ingresos: ${ingresos_total:,.2f} | Antes energía: ${ingresos_total - gasto_total:,.2f}")
-        else:
-            # ocultar etiquetas energéticas si estaban visibles
-            try:
-                if self.label_energy_hour.winfo_ismapped():
-                    self.label_energy_hour.pack_forget()
-                if self.label_energy_acum.winfo_ismapped():
-                    self.label_energy_acum.pack_forget()
-                if self.label_combined.winfo_ismapped():
-                    self.label_combined.pack_forget()
-            except Exception:
-                pass
-
-            # ganancia simple: preferir columna ganancia o fallback ingresos - gastos
-            try:
-                gan_stored = database.calcular_ganancia_total(self.user_id) or 0.0
-                if gan_stored == 0.0:
-                    gan_calc = ingresos_total - gasto_total
-                else:
-                    gan_calc = gan_stored
-            except Exception:
-                gan_calc = ingresos_total - gasto_total
-            self.label_ganancia_total.configure(text=f"${gan_calc:,.2f}")
-            self.label_ganancia_detail.configure(text=f"Ingresos: ${ingresos_total:,.2f}")
-
-    def actualizar_previews_y_stats(self):
-        # actualizar las últimas 3 agendas en preview_container y contadores laterales
-        try:
-            proyectos = database.obtener_ultimas_agendas(self.user_id, limit=2)
-        except Exception:
-            proyectos = []
-
-        # limpiar contenedor
-        for w in self.preview_container.winfo_children():
-            w.destroy()
-
-        # mostrar hasta 2 en columnas (izq / der)
-        for idx, p in enumerate(proyectos[:2]):
-            # p: id, nombre, meta, materiales, flota, tiempo_hs, costo_energia, precio_unit, delivery_date, ganancia, created_at
-            pid = p[0]
-            nombre = p[1] if len(p) > 1 else 'Proyecto'
-            meta = p[2] if len(p) > 2 else ''
-            card = ctk.CTkFrame(self.preview_container, fg_color=config.COLOR_TARJETA, corner_radius=6)
-            card.grid(row=0, column=idx, sticky='nsew', padx=6, pady=8)
-            ctk.CTkLabel(card, text=f"{nombre}", font=("Segoe UI", 11, "bold"), text_color="white").pack(anchor='w', padx=8, pady=(6,2))
-            ctk.CTkLabel(card, text=f"Meta: {meta}", text_color='gray').pack(anchor='w', padx=8, pady=(0,6))
-            # detalle breve
-            ctk.CTkLabel(card, text=f"Fecha: {p[8]}", text_color='gray').pack(anchor='w', padx=8, pady=(0,6))
-
-        # si hay menos de 2, llenar el otro lado con espacio para mantener layout
-        if len(proyectos) < 2:
-            for empty_idx in range(len(proyectos), 2):
-                placeholder = ctk.CTkFrame(self.preview_container, fg_color="transparent")
-                placeholder.grid(row=0, column=empty_idx, sticky='nsew', padx=6, pady=8)
-
-    def apply_negrita(self, enabled: bool):
-        """Aplicar modo de texto aumentado/negrita en la vista (llamado desde `main`)."""
-        try:
-            if enabled:
-                self.label_gasto_total.configure(font=("Segoe UI", 36, "bold"))
-                self.label_ganancia_total.configure(font=("Segoe UI", 36, "bold"))
-            else:
-                self.label_gasto_total.configure(font=("Segoe UI", 32, "bold"))
-                self.label_ganancia_total.configure(font=("Segoe UI", 32, "bold"))
-        except Exception:
-            pass
-
-    def _abrir_en_agenda(self, pid):
-        # simple helper: si el master tiene método para cambiar vista a Agenda, usarlo
-        try:
-            if hasattr(self.master, 'mostrar_agenda'):
-                self.master.mostrar_agenda(pid)
-        except Exception:
-            pass
-
-    def _ver_todas_las_agendas(self):
-        try:
-            if hasattr(self.master, 'ir_a_agenda'):
-                # navegar a vista Agenda
-                self.master.ir_a_agenda()
-        except Exception:
-            pass
+    def destroy(self):
+        if self.loop_id: 
+            try: self.after_cancel(self.loop_id)
+            except: pass
+        try: plt.close('all')
+        except: pass
+        super().destroy()

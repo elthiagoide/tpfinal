@@ -1,42 +1,44 @@
-# config.py - CONFIGURACIÓN DE COLORES Y MODOS
+# config.py - ESTILO FINAL (SIN SWITCH NEGRITA)
 
-# --- PALETA ESTILO MAKERWORLD / BAMBU STUDIO ---
+# --- 1. FONDOS ---
+COLOR_FONDO_APP = ("#f0f0f0", "#181b1f")       
+COLOR_MENU_LATERAL = ("#ffffff", "#222b32")    
+COLOR_TARJETA = ("#ffffff", "#2c2c2c")         
+COLOR_SEPARADOR = ("#d1d1d1", "#333b42")       
 
-# 1. Fondos Principales
-COLOR_FONDO_APP = "#181b1f"       # Fondo principal oscuro
-COLOR_MENU_LATERAL = "#222b32"    # Fondo de la barra lateral
-COLOR_SEPARADOR = "#333b42"       # <--- ESTA ES LA QUE TE FALTABA
-COLOR_TARJETA = "#2c2c2c"         # Fondo de las tarjetas de impresoras/bobinas
+# --- 2. ACENTOS ---
+COLOR_ACENTO = ("#00965e", "#00965e")          
+COLOR_ACENTO_HOVER = ("#00b06f", "#00b06f")    
+COLOR_SECUNDARIO = ("#4cd137", "#4cd137")      
 
-# 2. Acentos (Verdes)
-COLOR_VERDE_BAMBU = "#00965e"     # Verde principal
-COLOR_VERDE_HOVER = "#00b06f"     # Verde más claro al pasar mouse
+# --- 3. TEXTOS ---
+COLOR_TEXTO_BLANCO = ("#000000", "#ffffff") 
+COLOR_TEXTO_GRIS = ("#333333", "#9e9e9e")      
+COLOR_HOVER_BTN = ("#e0e0e0", "#2a3640")       
 
-# 3. Acciones / Estados
-COLOR_ROJO = "#e74c3c"            # Para eliminar o cerrar sesión
-COLOR_ROJO_HOVER = "#ff6b6b"
+# --- 4. COMPATIBILIDAD ---
+COLOR_VERDE_BAMBU = "#00965e"     
+COLOR_VERDE_HOVER = "#00b06f"
+COLOR_ROJO = ("#d32f2f", "#e74c3c")
+COLOR_ROJO_HOVER = ("#ef5350", "#ff6b6b")
 
-# 4. Textos
-COLOR_TEXTO_BLANCO = "#ffffff"
-COLOR_TEXTO_GRIS = "#9e9e9e"
-COLOR_HOVER_BTN = "#2a3640"       # Fondo gris al pasar mouse por botones del menú
+# --- 5. FUENTES (ESTÁTICAS Y LEGIBLES) ---
+FONT_FAMILY = "Segoe UI"
 
-# --- CONFIGURACIÓN DE MODOS (PRINCIPIANTE/GUÍA) ---
-MODO_PRINCIPIANTE = True          # Arranca activado por defecto
+# Títulos y Botones: SIEMPRE NEGRITA
+FONT_TITULO = (FONT_FAMILY, 28, "bold")
+FONT_SUBTITULO = (FONT_FAMILY, 20, "bold")
+FONT_BOTON = (FONT_FAMILY, 13, "bold")
 
-# Colores para la caja de Ayuda
-COLOR_FONDO_AYUDA = "#2a3036"
+# Texto general: Normal (para no saturar), pero legible
+FONT_TEXTO = (FONT_FAMILY, 14, "normal") 
+FONT_SMALL = (FONT_FAMILY, 11, "normal")
+
+# --- 6. MODOS ---
+MODO_PRINCIPIANTE = True
+COLOR_FONDO_AYUDA = ("#e8f5e9", "#2a3036")
 COLOR_BORDE_AYUDA = "#00965e"
 COLOR_TITULO_AYUDA = "#00965e"
-# --- CONFIGURACIÓN ENERGÉTICA ---
-# Costo por kW-h (valor por defecto, el usuario podrá cambiarlo en la UI)
-COSTO_KW = 0.20
-# Mostrar cálculo de consumo energético en el dashboard por defecto
-MOSTRAR_CONSUMO = True
 
-# Tarifas por zona (ejemplos). El usuario puede seleccionar una zona o ingresar un costo manual.
-ZONAS_COSTO = {
-	'Zona urbana (tarifa baja)': 0.15,
-	'Zona estándar': 0.20,
-	'Zona industrial (tarifa alta)': 0.28
-}
+COSTO_KW_ZONA = 100.0  
+MOSTRAR_CONSUMO = True

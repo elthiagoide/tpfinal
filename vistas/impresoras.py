@@ -2,294 +2,192 @@ import customtkinter as ctk
 from tkinter import messagebox
 import sys
 import os
-import config # Importamos para los colores
-
+import config
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import database
 
-# --- DICCIONARIO DE MARCAS Y MODELOS ---
+# Datos precargados para los dropdowns
 DATOS_IMPRESORAS = {
-    "Creality": ["Ender 3", "Ender 3 V2", "Ender 5", "K1", "CR-10", "OTROS"],
+    "Creality": ["Ender 3", "Ender 3 V2", "Ender 3 S1", "K1", "K1 Max", "CR-10", "OTROS"],
     "Bambu Lab": ["X1 Carbon", "P1S", "P1P", "A1 Mini", "A1", "OTROS"],
-    "Anycubic": ["Kobra 2", "Vyper", "Photon Mono", "Mega X", "Kobra Neo", "OTROS"],
-    "Prusa": ["MK3S+", "MK4", "Mini+", "XL", "SL1S", "OTROS"],
-    "Hellbot": ["Magna 2", "Magna SE", "Hidra", "Apolo", "Magna 1", "OTROS"],
-    "OTROS": ["OTROS"] 
-}
-
-# Estimaciones de consumo por modelo (kW promedio en uso). Ajusta según el modelo real.
-MODEL_POWER_KW = {
-    "Ender 3": 0.12,
-    "Ender 3 V2": 0.12,
-    "Ender 5": 0.18,
-    "K1": 0.25,
-    "CR-10": 0.18,
-    "X1 Carbon": 0.30,
-    "P1S": 0.28,
-    "P1P": 0.28,
-    "A1 Mini": 0.10,
-    "A1": 0.20,
-    "Kobra 2": 0.20,
-    "Vyper": 0.16,
-    "Photon Mono": 0.06,
-    "Mega X": 0.22,
-    "Kobra Neo": 0.18,
-    "MK3S+": 0.20,
-    "MK4": 0.25,
-    "Mini+": 0.12,
-    "XL": 0.30,
-    "SL1S": 0.10,
-    "Magna 2": 0.25,
-    "Magna SE": 0.22,
-    "Hidra": 0.20,
-    "Apolo": 0.28
+    "Prusa": ["MK3S+", "MK4", "Mini+", "XL", "OTROS"],
+    "Artillery": ["Sidewinder X1", "Sidewinder X2", "Genius", "Hornet", "OTROS"],
+    "Elegoo": ["Neptune 3", "Neptune 4", "Neptune 4 Pro", "OTROS"],
+    "Anycubic": ["Kobra 2", "Kobra Neo", "Vyper", "Mega S", "OTROS"],
+    "Voron": ["V0.1", "V2.4", "Trident", "Switchwire", "OTROS"],
+    "OTROS": ["Genérica / Custom"] 
 }
 
 class VistaImpresoras(ctk.CTkFrame):
     def __init__(self, master, user_id, **kwargs):
-        # 1. Configuración Inicial
         super().__init__(master, **kwargs)
-        self.configure(fg_color=config.COLOR_FONDO_APP) # Fondo Oscuro General
+        self.configure(fg_color=config.COLOR_FONDO_APP)
         self.user_id = user_id
         
-        # Título
-        ctk.CTkLabel(self, text="Mis Impresoras", font=("Segoe UI", 24, "bold"), text_color="white").pack(pady=(20, 10))
+        # Fuentes y colores (defensivo)
+        FONT_TITULO = getattr(config, 'FONT_TITULO', ("Segoe UI", 24, "bold"))
+        FONT_SUBTITULO = getattr(config, 'FONT_SUBTITULO', ("Segoe UI", 16, "bold"))
+        FONT_TEXTO = getattr(config, 'FONT_TEXTO', ("Segoe UI", 13, "bold")) # Todo Bold como pediste
+        BORDER_COLOR = getattr(config, 'COLOR_ACENTO', "#00965e")
+        if isinstance(BORDER_COLOR, tuple): BORDER_COLOR = BORDER_COLOR[1]
 
-        # --- CAJA DE AYUDA (Estilo Dark) ---
-        if config.MODO_PRINCIPIANTE:
-            self.mostrar_ayuda()
+        # Título Principal
+        ctk.CTkLabel(self, text="Mis Impresoras", font=FONT_TITULO, text_color=config.COLOR_TEXTO_BLANCO).pack(pady=(10, 5))
 
-        # --- TARJETA DE FORMULARIO (Gris Oscuro) ---
-        self.frame_add = ctk.CTkFrame(self, fg_color=config.COLOR_TARJETA, corner_radius=10)
-        self.frame_add.pack(fill="x", padx=40, pady=10)
-
-        # Subtítulo del formulario
-        ctk.CTkLabel(self.frame_add, text="AGREGAR NUEVA", font=("Segoe UI", 12, "bold"), text_color=config.COLOR_VERDE_BAMBU).pack(anchor="w", padx=20, pady=(15, 5))
-
-        # Nota: controles de consumo energético se muestran en el Dashboard
-
-        # Fila 1: Nombre y Horas
-        row1 = ctk.CTkFrame(self.frame_add, fg_color="transparent")
-        row1.pack(fill="x", padx=15, pady=5)
+        # --- 1. TIPS (Panel Superior) ---
+        self.frame_tips = ctk.CTkFrame(self, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, corner_radius=10)
+        self.frame_tips.pack(fill="x", padx=20, pady=10)
         
-        ctk.CTkLabel(row1, text="Nombre:", text_color="#ccc").pack(side="left", padx=5)
-        self.entry_nombre = ctk.CTkEntry(row1, placeholder_text="Ej: Impresora 1", fg_color="#1a1a1a", border_color="#444", text_color="white")
-        self.entry_nombre.pack(side="left", padx=5, expand=True, fill="x")
+        lbl_tip_title = ctk.CTkLabel(self.frame_tips, text="📄 TIPS PARA AGREGAR IMPRESORAS", font=("Segoe UI", 12, "bold"), text_color=BORDER_COLOR)
+        lbl_tip_title.pack(anchor="w", padx=15, pady=(10, 2))
         
-        # Nombre por defecto
-        cantidad = database.contar_impresoras(self.user_id)
-        self.entry_nombre.insert(0, f"Impresora {cantidad + 1}")
+        lbl_tip_text = ctk.CTkLabel(self.frame_tips, text="• MARCA/MODELO: Selecciona de la lista. Si usas una marca genérica, elige 'OTROS'.\n• HORAS DE USO: Sirve para calcular el mantenimiento. Si es nueva, déjalo en 0.", 
+                                    font=("Segoe UI", 11), text_color="gray", justify="left")
+        lbl_tip_text.pack(anchor="w", padx=15, pady=(0, 10))
 
-        ctk.CTkLabel(row1, text="Horas uso:", text_color="#ccc").pack(side="left", padx=(15, 5))
-        self.entry_horas = ctk.CTkEntry(row1, placeholder_text="0", width=80, fg_color="#1a1a1a", border_color="#444", text_color="white")
-        self.entry_horas.pack(side="left", padx=5)
-        self.entry_horas.insert(0, "0") 
+        # --- GRID PRINCIPAL (2 Columnas) ---
+        self.main_grid = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_grid.pack(fill="both", expand=True, padx=20, pady=5)
+        self.main_grid.grid_columnconfigure(0, weight=4) # Formulario (40%)
+        self.main_grid.grid_columnconfigure(1, weight=6) # Lista (60%)
+        self.main_grid.grid_rowconfigure(0, weight=1)
 
-        ctk.CTkLabel(row1, text="Consumo (kW):", text_color="#ccc").pack(side="left", padx=(15,5))
-        self.entry_power = ctk.CTkEntry(row1, placeholder_text="Auto", width=80, fg_color="#1a1a1a", border_color="#444", text_color="white")
-        self.entry_power.pack(side="left", padx=5)
+        # --- 2. FORMULARIO (Izquierda) ---
+        self.panel_form = ctk.CTkFrame(self.main_grid, fg_color=config.COLOR_TARJETA, corner_radius=15,
+                                       border_width=2, border_color=BORDER_COLOR)
+        self.panel_form.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=5)
 
-        # Fila 2: Marca y Modelo
-        row2 = ctk.CTkFrame(self.frame_add, fg_color="transparent")
-        row2.pack(fill="x", padx=15, pady=5)
+        ctk.CTkLabel(self.panel_form, text="AGREGAR NUEVA", font=FONT_SUBTITULO, text_color=BORDER_COLOR).pack(anchor="w", padx=20, pady=(20, 15))
 
-        ctk.CTkLabel(row2, text="Marca:", text_color="#ccc").pack(side="left", padx=5)
-        self.combo_marca = ctk.CTkComboBox(row2, values=list(DATOS_IMPRESORAS.keys()), command=self.evento_cambio_marca, width=150, fg_color="#1a1a1a", button_color="#444", text_color="white", dropdown_fg_color="#333")
-        self.combo_marca.pack(side="left", padx=5)
+        # Nombre
+        ctk.CTkLabel(self.panel_form, text="Nombre:", font=FONT_TEXTO, text_color="gray").pack(anchor="w", padx=20)
+        self.entry_nombre = ctk.CTkEntry(self.panel_form, placeholder_text="Ej: Ender 3 Pro", height=35, font=FONT_TEXTO, border_color=BORDER_COLOR)
+        self.entry_nombre.pack(fill="x", padx=20, pady=(5, 10))
+
+        # Fila Doble: Horas y Consumo
+        row_specs = ctk.CTkFrame(self.panel_form, fg_color="transparent")
+        row_specs.pack(fill="x", padx=20, pady=5)
         
-        ctk.CTkLabel(row2, text="Modelo:", text_color="#ccc").pack(side="left", padx=(15,5))
-        self.combo_modelo = ctk.CTkComboBox(row2, values=["Seleccione Marca"], command=self.evento_cambio_modelo, width=150, fg_color="#1a1a1a", button_color="#444", text_color="white", dropdown_fg_color="#333")
-        self.combo_modelo.pack(side="left", padx=5)
+        # Horas
+        frame_horas = ctk.CTkFrame(row_specs, fg_color="transparent")
+        frame_horas.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        ctk.CTkLabel(frame_horas, text="Horas uso:", font=FONT_TEXTO, text_color="gray").pack(anchor="w")
+        self.entry_horas = ctk.CTkEntry(frame_horas, placeholder_text="0", height=35, font=FONT_TEXTO, border_color=BORDER_COLOR)
+        self.entry_horas.pack(fill="x")
 
-        # Fila 3: Campos Manuales (Ocultos por defecto)
-        self.row_manual = ctk.CTkFrame(self.frame_add, fg_color="transparent")
-        self.entry_marca_manual = ctk.CTkEntry(self.row_manual, placeholder_text="Escriba la Marca", fg_color="#1a1a1a", border_color="#444", text_color="white")
-        self.entry_modelo_manual = ctk.CTkEntry(self.row_manual, placeholder_text="Escriba el Modelo", fg_color="#1a1a1a", border_color="#444", text_color="white")
+        # Consumo
+        frame_kw = ctk.CTkFrame(row_specs, fg_color="transparent")
+        frame_kw.pack(side="left", fill="x", expand=True, padx=(5, 0))
+        ctk.CTkLabel(frame_kw, text="Consumo (kW):", font=FONT_TEXTO, text_color="gray").pack(anchor="w")
+        self.entry_kw = ctk.CTkEntry(frame_kw, placeholder_text="0.30", height=35, font=FONT_TEXTO, border_color=BORDER_COLOR)
+        self.entry_kw.pack(fill="x")
+
+        # Marca
+        ctk.CTkLabel(self.panel_form, text="Marca:", font=FONT_TEXTO, text_color="gray").pack(anchor="w", padx=20, pady=(10, 0))
+        self.combo_marca = ctk.CTkComboBox(self.panel_form, values=list(DATOS_IMPRESORAS.keys()), height=35, 
+                                           font=FONT_TEXTO, border_color=BORDER_COLOR, button_color=BORDER_COLOR,
+                                           command=self.actualizar_modelos)
+        self.combo_marca.pack(fill="x", padx=20, pady=5)
+
+        # Modelo
+        ctk.CTkLabel(self.panel_form, text="Modelo:", font=FONT_TEXTO, text_color="gray").pack(anchor="w", padx=20, pady=(10, 0))
+        self.combo_modelo = ctk.CTkComboBox(self.panel_form, values=["Seleccione Marca"], height=35, 
+                                            font=FONT_TEXTO, border_color=BORDER_COLOR, button_color=BORDER_COLOR)
+        self.combo_modelo.pack(fill="x", padx=20, pady=5)
 
         # Botón Guardar
-        self.btn_guardar = ctk.CTkButton(self.frame_add, text="GUARDAR IMPRESORA", fg_color=config.COLOR_VERDE_BAMBU, hover_color=config.COLOR_VERDE_HOVER, font=("Segoe UI", 13, "bold"), command=self.guardar_impresora)
-        self.btn_guardar.pack(pady=20, padx=20, fill="x")
+        ctk.CTkButton(self.panel_form, text="GUARDAR IMPRESORA", height=45, 
+                      fg_color=BORDER_COLOR, hover_color=config.COLOR_ACENTO_HOVER, 
+                      font=FONT_SUBTITULO, text_color="white",
+                      command=self.guardar).pack(fill="x", padx=20, pady=30)
 
-        # --- LISTA DE IMPRESORAS ---
-        ctk.CTkLabel(self, text="LISTADO", font=("Segoe UI", 12, "bold"), text_color="gray").pack(anchor="w", padx=40, pady=(10,0))
-        
-        self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent") # Transparente para ver el fondo negro
-        self.scroll_frame.pack(fill="both", expand=True, padx=30, pady=10)
+        # --- 3. LISTA (Derecha) ---
+        self.scroll_lista = ctk.CTkScrollableFrame(self.main_grid, fg_color="transparent")
+        self.scroll_lista.grid(row=0, column=1, sticky="nsew", padx=(10, 0), pady=5)
 
-        # Inicialización de datos
+        self.actualizar_modelos("Creality") # Init combos
         self.cargar_lista()
-        self.evento_cambio_marca(self.combo_marca.get())
 
-    # --- FUNCIONES DE LÓGICA ---
+    # --- LÓGICA ---
 
-    def mostrar_ayuda(self):
-        frame_ayuda = ctk.CTkFrame(self, fg_color=config.COLOR_FONDO_AYUDA, border_width=1, border_color=config.COLOR_BORDE_AYUDA, corner_radius=6)
-        frame_ayuda.pack(fill="x", padx=40, pady=(0, 15))
-        
-        ctk.CTkLabel(frame_ayuda, text="ℹ️ TIPS PARA AGREGAR IMPRESORAS", text_color=config.COLOR_TITULO_AYUDA, font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=15, pady=(10, 2))
-        
-        texto_guia = "• MARCA/MODELO: Selecciona de la lista. Si usas una marca genérica, elige 'OTROS'.\n• HORAS DE USO: Sirve para calcular el mantenimiento. Si es nueva, déjalo en 0."
-        ctk.CTkLabel(frame_ayuda, text=texto_guia, text_color="#cccccc", justify="left", anchor="w", font=("Segoe UI", 11)).pack(padx=15, pady=(0, 10))
-
-    def evento_cambio_marca(self, marca_seleccionada):
-        modelos = DATOS_IMPRESORAS.get(marca_seleccionada, ["OTROS"])
+    def actualizar_modelos(self, marca):
+        modelos = DATOS_IMPRESORAS.get(marca, ["OTROS"])
         self.combo_modelo.configure(values=modelos)
         self.combo_modelo.set(modelos[0])
-        self.chequear_manuales()
 
-    def evento_cambio_modelo(self, modelo_seleccionado):
-        self.chequear_manuales()
-        # Si tenemos una estimación para el modelo, la ponemos en el campo de consumo
-        valor = MODEL_POWER_KW.get(modelo_seleccionado)
-        if valor:
-            self.entry_power.delete(0, 'end')
-            self.entry_power.insert(0, str(valor))
-        else:
-            # si es OTROS o no conocido, dejamos "" para que el usuario lo complete
-            if modelo_seleccionado == "OTROS":
-                self.entry_power.delete(0, 'end')
-
-    def chequear_manuales(self):
-        self.row_manual.pack_forget()
-        self.entry_marca_manual.pack_forget()
-        self.entry_modelo_manual.pack_forget()
-
+    def guardar(self):
+        nombre = self.entry_nombre.get()
         marca = self.combo_marca.get()
         modelo = self.combo_modelo.get()
-        mostrar_fila = False
-
-        if marca == "OTROS":
-            self.entry_marca_manual.pack(side="left", padx=5, expand=True, fill="x")
-            self.entry_modelo_manual.pack(side="left", padx=5, expand=True, fill="x")
-            mostrar_fila = True
-        elif modelo == "OTROS":
-            self.entry_modelo_manual.pack(side="left", padx=5, expand=True, fill="x")
-            mostrar_fila = True
-
-        if mostrar_fila:
-            self.row_manual.pack(fill="x", padx=15, pady=5, after=self.frame_add.winfo_children()[2]) # Indice ajustado
-
-    def guardar_impresora(self):
-        nombre = self.entry_nombre.get()
-        horas_str = self.entry_horas.get()
         
-        seleccion_marca = self.combo_marca.get()
-        seleccion_modelo = self.combo_modelo.get()
-        
-        marca_final = seleccion_marca
-        modelo_final = seleccion_modelo
-
-        if seleccion_marca == "OTROS":
-            marca_final = self.entry_marca_manual.get()
-            modelo_final = self.entry_modelo_manual.get()
-        elif seleccion_modelo == "OTROS":
-            modelo_final = self.entry_modelo_manual.get()
-
-        if not nombre or not marca_final or not modelo_final:
-            messagebox.showwarning("Atención", "Completa todos los campos")
+        # Validaciones
+        if not nombre:
+            messagebox.showwarning("Faltan datos", "El nombre es obligatorio.")
             return
 
-        if not horas_str: horas_str = "0"
-
         try:
-            horas = float(horas_str)
-            # power (kW)
-            power_val = 0.0
-            try:
-                power_val = float(self.entry_power.get())
-            except:
-                power_val = 0.0
-
-            # Si no se ingresa power y tenemos una estimación por modelo, usarla
-            if power_val == 0.0:
-                est = MODEL_POWER_KW.get(modelo_final)
-                if est:
-                    power_val = float(est)
-
-            if database.agregar_impresora(nombre, marca_final, modelo_final, horas, self.user_id, power_kw=power_val):
-                messagebox.showinfo("Éxito", "Impresora guardada")
-                self.cargar_lista()
-                
-                # Reset
-                cantidad = database.contar_impresoras(self.user_id)
-                self.entry_nombre.delete(0, 'end')
-                self.entry_nombre.insert(0, f"Impresora {cantidad + 1}")
-                self.entry_horas.delete(0, 'end')
-                self.entry_horas.insert(0, "0")
-                self.entry_marca_manual.delete(0, 'end')
-                self.entry_modelo_manual.delete(0, 'end')
-                self.combo_marca.set("Creality")
-                self.evento_cambio_marca("Creality")
-            else:
-                messagebox.showerror("Error", "No se pudo guardar")
+            horas = float(self.entry_horas.get()) if self.entry_horas.get() else 0.0
+            kw = float(self.entry_kw.get()) if self.entry_kw.get() else 0.0
         except ValueError:
-            messagebox.showerror("Error", "Las horas deben ser un número")
+            messagebox.showerror("Error", "Horas y Consumo deben ser números.")
+            return
+
+        # Guardar en DB
+        if database.agregar_impresora(nombre, marca, modelo, horas, self.user_id, kw):
+            messagebox.showinfo("Éxito", "Impresora guardada correctamente.")
+            self.cargar_lista()
+            # Limpiar campos
+            self.entry_nombre.delete(0, 'end')
+            self.entry_horas.delete(0, 'end')
+            self.entry_kw.delete(0, 'end')
+        else:
+            messagebox.showerror("Error", "No se pudo guardar en la base de datos.")
 
     def cargar_lista(self):
-        for widget in self.scroll_frame.winfo_children(): widget.destroy()
+        # Limpiar
+        for widget in self.scroll_lista.winfo_children():
+            widget.destroy()
 
-        lista = database.obtener_impresoras(self.user_id)
-        if not lista:
-             ctk.CTkLabel(self.scroll_frame, text="No tienes impresoras registradas.", text_color="gray").pack(pady=20)
-             return
+        impresoras = database.obtener_impresoras(self.user_id)
+        
+        if not impresoras:
+            ctk.CTkLabel(self.scroll_lista, text="No tienes impresoras registradas.", text_color="gray").pack(pady=20)
+            return
 
-        # Calcular totales
-        total_kw = 0.0
-        total_cost = 0.0
-        mostrar = config.MOSTRAR_CONSUMO
-        try:
-            costo_kw = float(config.COSTO_KW)
-        except:
-            costo_kw = 0.0
+        # Border color
+        BORDER = getattr(config, 'COLOR_ACENTO', "#00965e")
+        if isinstance(BORDER, tuple): BORDER = BORDER[1]
 
-        for imp in lista:
-            # ahora imp puede contener power_kw en posición 6
-            id_imp, nombre, marca, modelo, estado, horas = imp[0], imp[1], imp[2], imp[3], imp[4], imp[5]
-            power_kw = 0.0
-            if len(imp) > 6:
-                power_kw = imp[6]
+        for imp in impresoras:
+            # imp: id, nombre, marca, modelo, estado, horas, power_kw
+            iid = imp[0]
+            nombre = imp[1]
+            detalle = f"{imp[2]} {imp[3]} | {imp[5]:.0f} hs"
+            consumo = f"Consumo: {imp[6]} kW" if len(imp) > 6 else "Consumo: 0 kW"
 
-            # TARJETA OSCURA (Estilo Bambu)
-            card = ctk.CTkFrame(self.scroll_frame, fg_color=config.COLOR_TARJETA, corner_radius=8, border_width=1, border_color="#333")
-            card.pack(fill="x", pady=5, padx=5)
+            # Tarjeta
+            card = ctk.CTkFrame(self.scroll_lista, fg_color=config.COLOR_TARJETA, corner_radius=10,
+                                border_width=1, border_color=BORDER)
+            card.pack(fill="x", pady=5)
 
-            # Icono
-            ctk.CTkLabel(card, text="🖨️", font=("Segoe UI", 20)).pack(side="left", padx=15)
-            
-            # Textos
+            # Icono Izquierda
+            ctk.CTkLabel(card, text="🖨️", font=("Arial", 30)).pack(side="left", padx=15, pady=10)
+
+            # Info Centro
             info_frame = ctk.CTkFrame(card, fg_color="transparent")
-            info_frame.pack(side="left", padx=5, pady=10)
+            info_frame.pack(side="left", fill="both", expand=True, pady=5)
             
-            ctk.CTkLabel(info_frame, text=nombre, font=("Segoe UI", 14, "bold"), text_color="white").pack(anchor="w")
-            ctk.CTkLabel(info_frame, text=f"{marca} {modelo} | {horas} hs", font=("Segoe UI", 12), text_color="gray").pack(anchor="w")
+            ctk.CTkLabel(info_frame, text=nombre, font=("Segoe UI", 14, "bold"), text_color="white", anchor="w").pack(fill="x")
+            ctk.CTkLabel(info_frame, text=detalle, font=("Segoe UI", 12), text_color="gray", anchor="w").pack(fill="x")
+            ctk.CTkLabel(info_frame, text=consumo, font=("Segoe UI", 12), text_color="white", anchor="w").pack(fill="x")
 
-            # Mostrar consumo si está activo
-            if mostrar:
-                ctk.CTkLabel(info_frame, text=f"Consumo: {power_kw:.2f} kW", font=("Segoe UI", 11), text_color="#cfcfcf").pack(anchor="w")
-                total_kw += power_kw
-                total_cost += power_kw * costo_kw
+            # Botón Eliminar Derecha
+            btn_del = ctk.CTkButton(card, text="✕", width=40, height=40, fg_color="transparent", 
+                                    hover_color="#333", text_color="gray", font=("Arial", 16),
+                                    command=lambda x=iid: self.eliminar(x))
+            btn_del.pack(side="right", padx=10)
 
-            # Botón Eliminar
-            ctk.CTkButton(card, text="✕", width=30, height=30, fg_color="transparent", text_color="gray", hover_color=config.COLOR_ROJO,
-                          command=lambda id=id_imp: self.evento_eliminar(id)).pack(side="right", padx=15)
-        # Mostrar resumen total si corresponde
-        if mostrar:
-            resumen = ctk.CTkFrame(self.scroll_frame, fg_color=config.COLOR_TARJETA, corner_radius=8, border_width=1, border_color="#333")
-            resumen.pack(fill="x", pady=8, padx=5)
-            ctk.CTkLabel(resumen, text="📊 Resumen Energía", font=("Segoe UI", 13, "bold"), text_color="white").pack(anchor="w", padx=12, pady=(8,2))
-            ctk.CTkLabel(resumen, text=f"Consumo total (sumado por impresora): {total_kw:.2f} kW", text_color="gray").pack(anchor="w", padx=12)
-            ctk.CTkLabel(resumen, text=f"Costo estimado por hora (según costo por kW): {total_cost:.2f}", text_color="gray").pack(anchor="w", padx=12, pady=(0,8))
-    def evento_eliminar(self, id_impresora):
-        if messagebox.askyesno("Confirmar", "¿Borrar impresora?"):
-            database.eliminar_impresora(id_impresora)
+    def eliminar(self, id_imp):
+        if messagebox.askyesno("Confirmar", "¿Eliminar esta impresora?"):
+            database.eliminar_impresora(id_imp)
             self.cargar_lista()
-            
-            cantidad = database.contar_impresoras(self.user_id)
-            self.entry_nombre.delete(0, 'end')
-            self.entry_nombre.insert(0, f"Impresora {cantidad + 1}")
-            # refrescar lista para totales
-            self.cargar_lista()
-
-    def toggle_mostrar(self):
-        # éste método ya no se usa (el switch se movió al Dashboard)
-        pass
